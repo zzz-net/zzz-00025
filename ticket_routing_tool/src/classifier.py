@@ -15,6 +15,7 @@ from .database import db
 from .models import Dataset, ModelVersion
 from .evaluator import evaluate_model, save_evaluation_report
 from .data_validator import KNOWN_LABELS
+from .rollback import activate_model
 from config import MODEL_DIR, DATASET_DIR
 
 
@@ -163,17 +164,16 @@ def train_model(dataset_id: int, app: Any) -> Dict[str, Any]:
             model_version.metrics = eval_result["metrics"]
             model_version.status = "completed"
             model_version.trained_at = datetime.utcnow()
-
-            existing_active = ModelVersion.query.filter_by(is_active=True).all()
-            for active in existing_active:
-                active.is_active = False
-                active.status = "rolled_back"
-                db.session.add(active)
-
-            model_version.is_active = True
-            model_version.status = "active"
-            db.session.add(model_version)
             db.session.commit()
+
+            activate_result = activate_model(model_version.id, app, operator='training')
+            
+            if not activate_result.get('success'):
+                return {
+                    "success": False,
+                    "error": f"模型训练成功但激活失败: {activate_result.get('error')}",
+                    "model_version_id": model_version.id
+                }
 
             save_evaluation_report(
                 model_version_id=model_version.id,

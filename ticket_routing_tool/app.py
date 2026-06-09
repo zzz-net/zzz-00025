@@ -10,7 +10,7 @@ from src.csv_importer import import_csv, list_datasets, get_dataset
 from src.classifier import train_model
 from src.predictor import predict_ticket, get_active_model, get_queue_suggestion, predict_batch
 from src.human_override import create_override, list_overrides, get_override_stats
-from src.rollback import list_rollback_candidates, rollback_to_version, get_version_history, get_active_version
+from src.rollback import list_rollback_candidates, rollback_to_version, get_version_history, get_active_version, compare_versions, activate_model, get_activation_history, get_version_with_details
 from src.report_exporter import export_audit_report, export_model_comparison_report
 from src.batch_manager import (
     create_batch, process_batch, get_batch, list_batches,
@@ -184,6 +184,7 @@ def create_app():
     @app.route('/rollback')
     def rollback_page():
         candidates = list_rollback_candidates(app)
+        history = get_activation_history(app, limit=20)
         
         with app.app_context():
             active_version_obj = ModelVersion.query.filter_by(is_active=True).first()
@@ -191,27 +192,15 @@ def create_app():
         
         active_model = None
         if active_version_obj:
-            active_model = active_version_obj.to_dict()
-            with app.app_context():
-                dataset = Dataset.query.get(active_version_obj.dataset_id)
-                if dataset:
-                    active_model['dataset_name'] = dataset.name
-            active_model['accuracy'] = active_version_obj.metrics.get('overall', {}).get('accuracy') if active_version_obj.metrics else None
+            active_model = get_version_with_details(active_version_obj.id, app)
         
-        versions_data = []
-        for v in version_objs:
-            v_dict = v.to_dict()
-            with app.app_context():
-                dataset = Dataset.query.get(v.dataset_id)
-                if dataset:
-                    v_dict['dataset_name'] = dataset.name
-            v_dict['accuracy'] = v.metrics.get('overall', {}).get('accuracy') if v.metrics else None
-            versions_data.append(v_dict)
+        versions_data = get_all_versions_with_details(app)
         
         return render_template('rollback.html',
                                candidates=candidates,
                                versions=versions_data,
-                               active_model=active_model)
+                               active_model=active_model,
+                               history=history)
 
     @app.route('/reports')
     def reports_page():
@@ -398,10 +387,90 @@ def create_app():
                     'current_version': result.get('current_version')
                 })
             else:
-                return json_response(False, result.get('message', '回滚失败'))
+                return json_response(False, result.get('message', '回滚失败')), 400
 
         except Exception as e:
-            return json_response(False, f'回滚失败: {str(e)}')
+            return json_response(False, f'回滚失败: {str(e)}'), 500
+
+    @app.route('/api/model/compare', methods=['POST'])
+    def api_model_compare():
+        try:
+            data = request.get_json() or request.form
+            version_a_id = data.get('version_a_id')
+            version_b_id = data.get('version_b_id')
+
+            if not version_a_id or not version_b_id:
+                return json_response(False, '缺少必填字段: version_a_id, version_b_id'), 400
+
+            try:
+                version_a_id = int(version_a_id)
+                version_b_id = int(version_b_id)
+            except (ValueError, TypeError):
+                return json_response(False, '版本 ID 必须是整数'), 400
+
+            result = compare_versions(version_a_id, version_b_id, app)
+
+            if result.get('success'):
+                return json_response(True, '版本对比成功', {
+                    'version_a': result.get('version_a'),
+                    'version_b': result.get('version_b'),
+                    'metrics_diff': result.get('metrics_diff'),
+                    'comparison': result.get('comparison')
+                })
+            else:
+                return json_response(False, result.get('error', '版本对比失败')), 404
+
+        except Exception as e:
+            return json_response(False, f'版本对比失败: {str(e)}'), 500
+
+    @app.route('/api/model/activate/<int:model_version_id>', methods=['POST'])
+    def api_model_activate(model_version_id):
+        try:
+            data = request.get_json() or request.form
+            operator = data.get('operator', 'web').strip()
+
+            if not operator:
+                return json_response(False, '操作者不能为空'), 400
+
+            result = activate_model(model_version_id, app, operator=operator)
+
+            if result.get('success'):
+                return json_response(True, result.get('message', '激活成功'), {
+                    'previous_version': result.get('previous_version'),
+                    'current_version': result.get('current_version')
+                })
+            else:
+                error_code = result.get('error_code', 'UNKNOWN')
+                status_code = 409 if error_code == 'ALREADY_ACTIVE' else 400
+                return json_response(False, result.get('error', '激活失败'), {
+                    'error_code': error_code,
+                    'current_version': result.get('current_version')
+                }), status_code
+
+        except Exception as e:
+            return json_response(False, f'激活失败: {str(e)}'), 500
+
+    @app.route('/api/model/activation-history', methods=['GET'])
+    def api_activation_history():
+        try:
+            limit = int(request.args.get('limit', 20))
+            history = get_activation_history(app, limit=limit)
+            return json_response(True, '查询成功', {
+                'history': history,
+                'total': len(history)
+            })
+        except Exception as e:
+            return json_response(False, f'查询激活历史失败: {str(e)}'), 500
+
+    @app.route('/api/model/<int:model_version_id>', methods=['GET'])
+    def api_model_detail(model_version_id):
+        try:
+            version = get_version_with_details(model_version_id, app)
+            if version is None:
+                return json_response(False, '模型版本不存在'), 404
+            return json_response(True, '查询成功', {'version': version})
+        except Exception as e:
+            return json_response(False, f'查询模型详情失败: {str(e)}'), 500
 
     @app.route('/api/report/audit', methods=['POST'])
     def api_report_audit():

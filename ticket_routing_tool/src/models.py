@@ -217,3 +217,31 @@ class BatchTicket(db.Model):
             'has_override': self.has_override,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class ModelActivationLog(db.Model):
+    __tablename__ = 'model_activation_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    model_version_id = db.Column(db.Integer, db.ForeignKey('model_versions.id'), nullable=False, index=True)
+    previous_version_id = db.Column(db.Integer, db.ForeignKey('model_versions.id'), nullable=True)
+    operator = db.Column(db.String(100), nullable=False)
+    action = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(50), nullable=False)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    model_version = db.relationship('ModelVersion', foreign_keys=[model_version_id], backref='activation_logs', lazy=True)
+    previous_version = db.relationship('ModelVersion', foreign_keys=[previous_version_id], lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'model_version_id': self.model_version_id,
+            'previous_version_id': self.previous_version_id,
+            'operator': self.operator,
+            'action': self.action,
+            'status': self.status,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }

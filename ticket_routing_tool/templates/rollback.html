@@ -1,19 +1,19 @@
 {% extends 'base.html' %}
 
-{% block title %}模型回滚 - 工单智能分派系统{% endblock %}
+{% block title %}模型版本管理 - 工单智能分派系统{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1 class="page-title">模型回滚</h1>
-    <p class="page-subtitle">管理模型版本，必要时回滚到历史版本</p>
+    <h1 class="page-title">模型版本管理</h1>
+    <p class="page-subtitle">对比模型版本、手动激活、查看切换历史</p>
 </div>
 
 <div class="alert alert-info mb-4">
     <i class="bi bi-info-circle me-2"></i>
-    <strong>提示：</strong>回滚操作将切换当前激活的模型版本，所有新的预测将使用回滚后的模型。请谨慎操作。
+    <strong>提示：</strong>您可以选择两个已完成的模型版本进行对比，或直接激活非失败版本。所有切换操作都会被记录。
 </div>
 
-<div class="row g-4">
+<div class="row g-4 mb-4">
     <div class="col-md-5">
         <div class="card border-success mb-4">
             <div class="card-header bg-success text-white">
@@ -37,8 +37,8 @@
                             <div class="card bg-light">
                                 <div class="card-body py-2">
                                     <div class="fw-bold fs-4">
-                                        {% if active_model['metrics'] and active_model['metrics'].f1 %}
-                                            {{ "%.3f"|format(active_model['metrics'].f1) }}
+                                        {% if active_model['metrics'] and active_model['metrics'].get('overall') and active_model['metrics']['overall'].get('f1') %}
+                                            {{ "%.3f"|format(active_model['metrics']['overall']['f1']) }}
                                         {% else %}-{% endif %}
                                     </div>
                                     <div class="small text-muted">F1值</div>
@@ -46,9 +46,27 @@
                             </div>
                         </div>
                     </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="card bg-light">
+                                <div class="card-body py-2">
+                                    <div class="fw-bold fs-5">{{ active_model.get('usage_count', 0) }}</div>
+                                    <div class="small text-muted">预测使用量</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card bg-light">
+                                <div class="card-body py-2">
+                                    <div class="fw-bold fs-5">{{ active_model.get('dataset_row_count', 0) }}</div>
+                                    <div class="small text-muted">训练样本数</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="small text-muted">
                         <i class="bi bi-calendar3 me-1"></i>
-                        激活时间：{% if active_model['created_at'] %}{{ active_model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
+                        训练时间：{% if active_model['trained_at'] %}{{ active_model['trained_at'] }}{% else %}-{% endif %}
                     </div>
                 </div>
                 {% else %}
@@ -61,46 +79,47 @@
         </div>
 
         <div class="card">
-            <div class="card-header">
-                <i class="bi bi-clock-history me-2"></i>版本历史时间线
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history me-2"></i>版本切换历史</span>
+                <span class="badge bg-secondary">最近 {{ history|length }} 条</span>
             </div>
-            <div class="card-body">
-                {% if models %}
-                <div class="timeline">
-                    {% for model in models[:10] %}
-                    <div class="timeline-item {% if model.is_active %}active{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <h6 class="mb-1">
-                                {% if model.is_active %}
-                                    <i class="bi bi-star-fill text-warning me-1"></i>
-                                {% endif %}
-                                版本 v{{ model['version'] }}
-                                </h6>
-                                <small class="text-muted">{{ model['dataset_name'] }}</small>
-                            </div>
-                            <span class="status-badge {% if model.is_active %}status-active{% elif model['status'] == 'completed' %}status-completed{% else %}status-failed{% endif %}">
-                                {% if model.is_active %}激活中{% elif model['status'] == 'completed' %}已完成{% else %}失败{% endif %}
-                            </span>
-                        </div>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                <i class="bi bi-calendar3 me-1"></i>
-                                {% if model['created_at'] %}{{ model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
-                            </small>
-                            {% if model['accuracy'] %}
-                            <small class="text-muted ms-3">
-                                <i class="bi bi-bar-chart me-1"></i>
-                                准确率 {{ "%.1f"|format(model['accuracy'] * 100) }}%
-                            </small>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endfor %}
+            <div class="card-body p-0">
+                {% if history %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>时间</th>
+                                <th>操作</th>
+                                <th>目标版本</th>
+                                <th>状态</th>
+                                <th>操作者</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in history %}
+                            <tr>
+                                <td><small class="text-muted">{{ log['created_at'][:19] }}</small></td>
+                                <td>
+                                    <span class="badge {% if log['action'] == 'activate' %}bg-primary{% elif log['action'] == 'rollback' %}bg-warning{% else %}bg-secondary{% endif %}">
+                                        {{ '激活' if log['action'] == 'activate' else '回滚' if log['action'] == 'rollback' else log['action'] }}
+                                    </span>
+                                </td>
+                                <td><code>v{{ log.get('model_version', 'N/A') }}</code></td>
+                                <td>
+                                    <span class="badge {% if log['status'] == 'success' %}bg-success{% elif log['status'] == 'failed' %}bg-danger{% else %}bg-info{% endif %}">
+                                        {{ '成功' if log['status'] == 'success' else '失败' if log['status'] == 'failed' else '跳过' }}
+                                    </span>
+                                </td>
+                                <td><small>{{ log['operator'] }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
                 {% else %}
                 <div class="text-center py-3">
-                    <p class="text-muted mb-0">暂无历史版本</p>
+                    <p class="text-muted mb-0">暂无切换历史</p>
                 </div>
                 {% endif %}
             </div>
@@ -108,61 +127,137 @@
     </div>
 
     <div class="col-md-7">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-arrow-left-right me-2"></i>版本对比
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label">版本 A</label>
+                        <select class="form-select" id="compareVersionA">
+                            <option value="">选择版本...</option>
+                            {% for v in versions %}
+                            {% if v['status'] != 'failed' %}
+                            <option value="{{ v['id'] }}">v{{ v['version'] }} ({{ v['dataset_name'] }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2 text-center align-self-end">
+                        <button class="btn btn-outline-primary w-100" onclick="compareVersions()">
+                            <i class="bi bi-arrow-left-right"></i>
+                        </button>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">版本 B</label>
+                        <select class="form-select" id="compareVersionB">
+                            <option value="">选择版本...</option>
+                            {% for v in versions %}
+                            {% if v['status'] != 'failed' %}
+                            <option value="{{ v['id'] }}">v{{ v['version'] }} ({{ v['dataset_name'] }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div id="comparisonResult" class="d-none">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-title mb-3">
+                                <i class="bi bi-bar-chart me-2"></i>对比结果
+                            </h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>指标</th>
+                                            <th>版本 A</th>
+                                            <th>版本 B</th>
+                                            <th>差异</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="comparisonTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="comparisonError" class="d-none alert alert-danger mt-3"></div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-arrow-counterclockwise me-2"></i>可回滚版本</span>
-                <span class="badge bg-secondary">{{ rollback_models|length }} 个版本</span>
+                <span><i class="bi bi-list-check me-2"></i>所有版本</span>
+                <span class="badge bg-secondary">{{ versions|length }} 个版本</span>
             </div>
             <div class="card-body p-0">
-                {% if rollback_models %}
+                {% if versions %}
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead>
+                        <thead class="table-light">
                             <tr>
                                 <th>版本</th>
                                 <th>数据集</th>
                                 <th>准确率</th>
                                 <th>F1值</th>
+                                <th>使用量</th>
+                                <th>状态</th>
                                 <th>训练时间</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for model in rollback_models %}
-                            <tr>
+                            {% for v in versions %}
+                            <tr {% if v['is_active'] %}class="table-success"{% endif %}>
                                 <td>
-                                    <code>v{{ model['version'] }}</code>
-                                    {% if model.is_active %}
+                                    <code>v{{ v['version'] }}</code>
+                                    {% if v['is_active'] %}
                                     <span class="badge bg-success ms-1">当前</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ model['dataset_name'] }}</td>
+                                <td>{{ v['dataset_name'] }}</td>
                                 <td>
-                                    {% if model['accuracy'] %}
-                                        <span class="fw-bold">{{ "%.1f"|format(model['accuracy'] * 100) }}%</span>
+                                    {% if v['accuracy'] %}
+                                        <span class="fw-bold">{{ "%.1f"|format(v['accuracy'] * 100) }}%</span>
                                     {% else %}
                                         <span class="text-muted">-</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if model['metrics'] and model['metrics'].f1 %}
-                                        {{ "%.3f"|format(model['metrics'].f1) }}
+                                    {% if v['metrics'] and v['metrics'].get('overall') and v['metrics']['overall'].get('f1') %}
+                                        {{ "%.3f"|format(v['metrics']['overall']['f1']) }}
                                     {% else %}
                                         <span class="text-muted">-</span>
                                     {% endif %}
                                 </td>
-                                <td><small class="text-muted">{% if model['created_at'] %}{{ model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                                <td><span class="badge bg-info">{{ v.get('usage_count', 0) }}</span></td>
                                 <td>
-                                    {% if not model.is_active %}
-                                    <button class="btn btn-sm btn-outline-warning" 
+                                    <span class="status-badge {% if v['is_active'] %}status-active{% elif v['status'] == 'completed' or v['status'] == 'rolled_back' %}status-completed{% else %}status-failed{% endif %}">
+                                        {% if v['is_active'] %}激活中{% elif v['status'] == 'completed' %}已完成{% elif v['status'] == 'rolled_back' %}已回滚{% elif v['status'] == 'training' %}训练中{% else %}失败{% endif %}
+                                    </span>
+                                    {% if not v.get('model_file_exists', True) and v['status'] != 'failed' and v['status'] != 'training' %}
+                                    <span class="badge bg-danger ms-1" title="模型文件缺失">文件缺失</span>
+                                    {% endif %}
+                                </td>
+                                <td><small class="text-muted">{% if v['trained_at'] %}{{ v['trained_at'][:16] }}{% else %}-{% endif %}</small></td>
+                                <td>
+                                    {% if v['status'] == 'failed' %}
+                                    <span class="text-muted small" title="失败版本不能激活">失败</span>
+                                    {% elif not v.get('model_file_exists', True) %}
+                                    <span class="text-muted small" title="模型文件缺失">文件缺失</span>
+                                    {% elif v['is_active'] %}
+                                    <span class="text-success small">当前版本</span>
+                                    {% else %}
+                                    <button class="btn btn-sm btn-outline-primary" 
                                             data-bs-toggle="modal" 
-                                            data-bs-target="#rollbackModal"
-                                            data-version="{{ model['version'] }}"
-                                            data-id="{{ model.id }}">
-                                        <i class="bi bi-arrow-counterclockwise me-1"></i>回滚
+                                            data-bs-target="#activateModal"
+                                            data-version="{{ v['version'] }}"
+                                            data-id="{{ v['id'] }}">
+                                        <i class="bi bi-play-circle me-1"></i>激活
                                     </button>
-                                    {% else %}
-                                    <span class="text-muted small">当前版本</span>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -173,7 +268,7 @@
                 {% else %}
                 <div class="text-center py-5">
                     <i class="bi bi-inbox display-4 text-muted mb-3"></i>
-                    <p class="text-muted">暂无可用的回滚版本</p>
+                    <p class="text-muted">暂无模型版本</p>
                     <a href="{{ url_for('train_page') }}" class="btn btn-primary">
                         <i class="bi bi-gear-wide-connected me-2"></i>训练模型
                     </a>
@@ -184,36 +279,37 @@
     </div>
 </div>
 
-<div class="modal fade" id="rollbackModal" tabindex="-1">
+<div class="modal fade" id="activateModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header bg-warning text-dark">
+            <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">
-                    <i class="bi bi-exclamation-triangle me-2"></i>确认回滚
+                    <i class="bi bi-play-circle me-2"></i>确认激活
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-3">您确定要将模型回滚到以下版本吗？</p>
+                <p class="mb-3">您确定要激活以下版本吗？</p>
                 <div class="card bg-light">
                     <div class="card-body">
-                        <h5 class="mb-1">版本 <span id="rollbackVersion" class="text-primary">v1.0</span></h5>
-                        <p class="text-muted mb-0">此操作将使该版本成为当前激活模型，所有新预测将使用此版本。</p>
+                        <h5 class="mb-1">版本 <span id="activateVersion" class="text-primary">v1.0</span></h5>
+                        <p class="text-muted mb-0">激活后，所有新的预测将使用此版本。之前的激活版本将被标记为已回滚。</p>
                     </div>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label class="form-label">操作者</label>
+                    <input type="text" class="form-control" id="activateOperator" placeholder="请输入您的姓名" value="admin">
                 </div>
                 <div class="alert alert-warning mt-3 mb-0">
                     <i class="bi bi-info-circle me-2"></i>
-                    <strong>注意：</strong>回滚后，之前的激活版本不会被删除，您可以随时再次切换。
+                    <strong>注意：</strong>此操作会被记录到切换历史中。
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <form action="" method="POST" id="rollbackForm">
-                    <input type="hidden" name="model_id" id="rollbackModelId" value="">
-                    <button type="submit" class="btn btn-warning">
-                        <i class="bi bi-arrow-counterclockwise me-2"></i>确认回滚
-                    </button>
-                </form>
+                <button type="button" class="btn btn-primary" id="confirmActivateBtn">
+                    <i class="bi bi-play-circle me-2"></i>确认激活
+                </button>
             </div>
         </div>
     </div>
@@ -222,16 +318,207 @@
 
 {% block extra_js %}
 <script>
-const rollbackModal = document.getElementById('rollbackModal');
-const rollbackForm = document.getElementById('rollbackForm');
-rollbackModal.addEventListener('show.bs.modal', function (event) {
+let currentActivateId = null;
+
+const activateModal = document.getElementById('activateModal');
+activateModal.addEventListener('show.bs.modal', function (event) {
     const button = event.relatedTarget;
     const version = button.getAttribute('data-version');
     const modelId = button.getAttribute('data-id');
     
-    document.getElementById('rollbackVersion').textContent = 'v' + version;
-    document.getElementById('rollbackModelId').value = modelId;
-    rollbackForm.action = "{{ url_for('api_rollback', model_version_id=0) }}".replace('/0', '/' + modelId);
+    currentActivateId = modelId;
+    document.getElementById('activateVersion').textContent = 'v' + version;
 });
+
+document.getElementById('confirmActivateBtn').addEventListener('click', async function() {
+    const operator = document.getElementById('activateOperator').value.trim();
+    if (!operator) {
+        alert('请输入操作者姓名');
+        return;
+    }
+    
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>激活中...';
+    
+    try {
+        const response = await fetch(`/api/model/activate/${currentActivateId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ operator: operator })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('激活成功！');
+            location.reload();
+        } else {
+            const errorCode = result.data?.error_code;
+            if (errorCode === 'ALREADY_ACTIVE') {
+                alert('该版本已经是激活版本');
+            } else if (errorCode === 'FAILED_VERSION') {
+                alert('失败的版本不能被激活');
+            } else if (errorCode === 'FILE_MISSING' || errorCode === 'VECTORIZER_MISSING') {
+                alert('模型文件缺失，无法激活');
+            } else if (errorCode === 'NOT_FOUND') {
+                alert('模型版本不存在');
+            } else {
+                alert('激活失败: ' + (result.message || '未知错误'));
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>确认激活';
+        }
+    } catch (e) {
+        alert('激活请求失败: ' + e.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-circle me-2"></i>确认激活';
+    }
+});
+
+async function compareVersions() {
+    const versionA = document.getElementById('compareVersionA').value;
+    const versionB = document.getElementById('compareVersionB').value;
+    
+    if (!versionA || !versionB) {
+        alert('请选择两个版本进行对比');
+        return;
+    }
+    
+    if (versionA === versionB) {
+        alert('请选择两个不同的版本');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('comparisonResult');
+    const errorDiv = document.getElementById('comparisonError');
+    const tableBody = document.getElementById('comparisonTableBody');
+    
+    resultDiv.classList.add('d-none');
+    errorDiv.classList.add('d-none');
+    
+    try {
+        const response = await fetch('/api/model/compare', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                version_a_id: parseInt(versionA),
+                version_b_id: parseInt(versionB)
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const data = result.data;
+            const va = data.version_a;
+            const vb = data.version_b;
+            
+            let html = '';
+            
+            html += `
+                <tr>
+                    <td class="fw-bold">版本号</td>
+                    <td>v${va.version}</td>
+                    <td>v${vb.version}</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">数据集</td>
+                    <td>${va.dataset_name} (${va.dataset_row_count}条)</td>
+                    <td>${vb.dataset_name} (${vb.dataset_row_count}条)</td>
+                    <td>${va.dataset_name !== vb.dataset_name ? '<span class="badge bg-warning">不同</span>' : '<span class="badge bg-success">相同</span>'}</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">准确率</td>
+                    <td>${va.accuracy ? (va.accuracy * 100).toFixed(2) + '%' : '-'}</td>
+                    <td>${vb.accuracy ? (vb.accuracy * 100).toFixed(2) + '%' : '-'}</td>
+                    <td>
+                        ${data.metrics_diff?.accuracy ? 
+                            (data.metrics_diff.accuracy.difference >= 0 ? 
+                                '<span class="text-success">' + data.metrics_diff.accuracy.difference_percent + '</span>' : 
+                                '<span class="text-danger">' + data.metrics_diff.accuracy.difference_percent + '</span>') 
+                            : '-'}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">F1值</td>
+                    <td>${va.metrics?.overall?.f1 ? va.metrics.overall.f1.toFixed(3) : '-'}</td>
+                    <td>${vb.metrics?.overall?.f1 ? vb.metrics.overall.f1.toFixed(3) : '-'}</td>
+                    <td>
+                        ${data.metrics_diff?.f1 ? 
+                            (data.metrics_diff.f1.difference >= 0 ? 
+                                '<span class="text-success">' + (data.metrics_diff.f1.difference * 100).toFixed(2) + '%</span>' : 
+                                '<span class="text-danger">' + (data.metrics_diff.f1.difference * 100).toFixed(2) + '%</span>') 
+                            : '-'}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">精确率</td>
+                    <td>${va.metrics?.overall?.precision ? va.metrics.overall.precision.toFixed(3) : '-'}</td>
+                    <td>${vb.metrics?.overall?.precision ? vb.metrics.overall.precision.toFixed(3) : '-'}</td>
+                    <td>
+                        ${data.metrics_diff?.precision ? 
+                            (data.metrics_diff.precision.difference >= 0 ? 
+                                '<span class="text-success">' + (data.metrics_diff.precision.difference * 100).toFixed(2) + '%</span>' : 
+                                '<span class="text-danger">' + (data.metrics_diff.precision.difference * 100).toFixed(2) + '%</span>') 
+                            : '-'}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">召回率</td>
+                    <td>${va.metrics?.overall?.recall ? va.metrics.overall.recall.toFixed(3) : '-'}</td>
+                    <td>${vb.metrics?.overall?.recall ? vb.metrics.overall.recall.toFixed(3) : '-'}</td>
+                    <td>
+                        ${data.metrics_diff?.recall ? 
+                            (data.metrics_diff.recall.difference >= 0 ? 
+                                '<span class="text-success">' + (data.metrics_diff.recall.difference * 100).toFixed(2) + '%</span>' : 
+                                '<span class="text-danger">' + (data.metrics_diff.recall.difference * 100).toFixed(2) + '%</span>') 
+                            : '-'}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">预测使用量</td>
+                    <td>${va.usage_count || 0}</td>
+                    <td>${vb.usage_count || 0}</td>
+                    <td>${(vb.usage_count || 0) - (va.usage_count || 0)}</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">训练时间</td>
+                    <td>${va.trained_at || '-'}</td>
+                    <td>${vb.trained_at || '-'}</td>
+                    <td>${data.comparison?.training_time_diff ? (data.comparison.training_time_diff / 3600).toFixed(2) + '小时' : '-'}</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">状态</td>
+                    <td>
+                        <span class="badge ${va.is_active ? 'bg-success' : va.status === 'failed' ? 'bg-danger' : 'bg-secondary'}">
+                            ${va.is_active ? '激活中' : va.status === 'completed' ? '已完成' : va.status === 'rolled_back' ? '已回滚' : va.status}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge ${vb.is_active ? 'bg-success' : vb.status === 'failed' ? 'bg-danger' : 'bg-secondary'}">
+                            ${vb.is_active ? '激活中' : vb.status === 'completed' ? '已完成' : vb.status === 'rolled_back' ? '已回滚' : vb.status}
+                        </span>
+                    </td>
+                    <td>${va.status !== vb.status ? '<span class="badge bg-warning">不同</span>' : '<span class="badge bg-success">相同</span>'}</td>
+                </tr>
+            `;
+            
+            tableBody.innerHTML = html;
+            resultDiv.classList.remove('d-none');
+        } else {
+            errorDiv.textContent = result.message || '对比失败';
+            errorDiv.classList.remove('d-none');
+        }
+    } catch (e) {
+        errorDiv.textContent = '对比请求失败: ' + e.message;
+        errorDiv.classList.remove('d-none');
+    }
+}
 </script>
 {% endblock %}

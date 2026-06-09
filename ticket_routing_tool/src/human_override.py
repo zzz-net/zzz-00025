@@ -3,6 +3,7 @@ from datetime import datetime
 
 from .models import Ticket, ModelVersion, HumanOverride
 from .database import db
+from .batch_manager import update_override_flag
 
 
 def create_override(
@@ -36,7 +37,9 @@ def create_override(
         
         db.session.add(override)
         db.session.commit()
-        
+
+        update_override_flag(ticket_id, app)
+
         return override.to_dict()
 
 

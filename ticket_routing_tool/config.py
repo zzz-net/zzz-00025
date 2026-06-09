@@ -12,6 +12,10 @@ REPORT_DIR = os.path.join(BASE_DIR, 'data', 'reports')
 
 SAMPLE_DIR = os.path.join(BASE_DIR, 'data', 'samples')
 
+BATCH_RESULT_DIR = os.path.join(BASE_DIR, 'data', 'batch_results')
+
+LOW_CONFIDENCE_THRESHOLD = 0.5
+
 SUPPORTED_CHANNELS = ['email', 'phone', 'web', 'app', 'wechat', 'weibo']
 
 QUEUE_MAPPING = {

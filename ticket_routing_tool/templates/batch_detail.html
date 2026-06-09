@@ -1,0 +1,447 @@
+{% extends 'base.html' %}
+
+{% block title %}批次详情 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <h1 class="page-title">批次详情</h1>
+            <p class="page-subtitle mb-0">查看批次预测结果和工单明细</p>
+        </div>
+        <div>
+            <a href="{{ url_for('batches_page') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-2"></i>返回任务中心
+            </a>
+        </div>
+    </div>
+</div>
+
+<div id="batchInfo" class="mb-4">
+    <div class="card">
+        <div class="card-body">
+            <div class="text-center py-3">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-2 mb-0">正在加载批次信息...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-funnel me-2"></i>工单筛选
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">状态</label>
+                    <select class="form-select" id="filterStatus" onchange="loadTickets()">
+                        <option value="">全部</option>
+                        <option value="success">成功</option>
+                        <option value="failed">失败</option>
+                    </select>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="filterLowConfidence" onchange="loadTickets()">
+                    <label class="form-check-label" for="filterLowConfidence">仅显示低置信度</label>
+                    <div class="form-text">置信度 < 50%</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="filterOverridden" onchange="loadTickets()">
+                    <label class="form-check-label" for="filterOverridden">仅显示已改判</label>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-secondary" onclick="resetFilters()">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>重置筛选
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-download me-2"></i>导出结果
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">操作者 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="exportOperator" placeholder="请输入操作者姓名">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">格式</label>
+                    <select class="form-select" id="exportFormat">
+                        <option value="csv">CSV (.csv)</option>
+                        <option value="xlsx">Excel (.xlsx)</option>
+                    </select>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="includeFailed" checked>
+                    <label class="form-check-label" for="includeFailed">包含失败行</label>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary" onclick="exportResults()">
+                        <i class="bi bi-download me-2"></i>导出结果
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul me-2"></i>工单明细 <span id="ticketCount" class="badge bg-secondary ms-2">0</span></span>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadTickets()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>刷新
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div id="ticketList" class="p-3">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted">正在加载工单列表...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const batchId = {{ batch_id }};
+let currentOperator = '';
+
+function loadBatchInfo() {
+    fetch(`/api/batch/${batchId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            renderBatchInfo(data.data.batch);
+        } else {
+            showAlert(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('加载失败: ' + error.message, 'error');
+    });
+}
+
+function renderBatchInfo(batch) {
+    const container = document.getElementById('batchInfo');
+    const modelVersion = batch.model_version_snapshot ?
+        `v${batch.model_version_snapshot.version}` : '未知';
+    const modelAccuracy = batch.model_version_snapshot?.accuracy ?
+        `${(batch.model_version_snapshot.accuracy * 100).toFixed(1)}%` : '-';
+
+    let html = `
+        <div class="card">
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="small text-muted mb-1">批次号</div>
+                            <div class="fw-bold"><code>${batch.batch_uid}</code></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="small text-muted mb-1">文件名</div>
+                            <div class="fw-bold">${batch.original_filename}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="small text-muted mb-1">操作者</div>
+                            <div class="fw-bold">${batch.operator}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="small text-muted mb-1">状态</div>
+                            <div>${getStatusBadge(batch.status)}</div>
+                        </div>
+                    </div>
+                </div>
+                <hr class="my-3">
+                <div class="row g-4">
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold">${batch.total_count}</div>
+                                <div class="small text-muted">总工单</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold text-success">${batch.success_count}</div>
+                                <div class="small text-muted">成功</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold text-danger">${batch.failed_count}</div>
+                                <div class="small text-muted">失败</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold text-warning">${batch.override_count || 0}</div>
+                                <div class="small text-muted">已改判</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold">${modelVersion}</div>
+                                <div class="small text-muted">模型版本</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card bg-light text-center">
+                            <div class="card-body py-3">
+                                <div class="fs-4 fw-bold">${modelAccuracy}</div>
+                                <div class="small text-muted">模型准确率</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <hr class="my-3">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="small text-muted">提交时间：${formatDateTime(batch.created_at)}</div>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <div class="small text-muted">完成时间：${formatDateTime(batch.completed_at) || '处理中...'}</div>
+                    </div>
+                </div>
+                ${batch.error_message ? `
+                <div class="alert alert-danger mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>错误信息：</strong>${batch.error_message}
+                </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    container.innerHTML = html;
+    currentOperator = batch.operator;
+    document.getElementById('exportOperator').value = currentOperator;
+}
+
+function loadTickets() {
+    const status = document.getElementById('filterStatus').value;
+    const lowConfidence = document.getElementById('filterLowConfidence').checked;
+    const overridden = document.getElementById('filterOverridden').checked;
+
+    let url = `/api/batch/${batchId}/tickets?limit=1000`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+    if (lowConfidence) url += '&low_confidence_only=true';
+    if (overridden) url += '&overridden_only=true';
+
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('ticketCount').textContent = data.data.total;
+            renderTicketList(data.data.tickets);
+        } else {
+            showAlert(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('加载失败: ' + error.message, 'error');
+    });
+}
+
+function renderTicketList(tickets) {
+    const container = document.getElementById('ticketList');
+
+    if (!tickets || tickets.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                <p class="text-muted mb-2">暂无工单数据</p>
+                <p class="text-muted small">尝试调整筛选条件</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="table-responsive"><table class="table table-hover align-middle mb-0">';
+    html += `
+        <thead class="table-light sticky-top">
+            <tr>
+                <th style="width: 60px;">行号</th>
+                <th style="width: 80px;">状态</th>
+                <th>标题</th>
+                <th style="width: 100px;">渠道</th>
+                <th style="width: 120px;">预测队列</th>
+                <th style="width: 90px;">置信度</th>
+                <th style="width: 90px;">已改判</th>
+                <th style="width: 100px;">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    tickets.forEach(ticket => {
+        const confidence = ticket.confidence !== null && ticket.confidence !== undefined ?
+            (ticket.confidence * 100).toFixed(1) + '%' : '-';
+        const confidenceClass = ticket.confidence !== null && ticket.confidence !== undefined ?
+            (ticket.confidence >= 0.8 ? 'text-success' : ticket.confidence >= 0.5 ? 'text-warning' : 'text-danger') : '';
+
+        html += `
+            <tr>
+                <td class="text-muted">${ticket.row_index}</td>
+                <td>${ticket.status === 'success' ?
+                    '<span class="badge bg-success">成功</span>' :
+                    '<span class="badge bg-danger">失败</span>'}</td>
+                <td>
+                    <div class="fw-bold text-truncate" style="max-width: 250px;" title="${escapeHtml(ticket.title)}">${escapeHtml(ticket.title)}</div>
+                    <div class="small text-muted text-truncate" style="max-width: 250px;" title="${escapeHtml(ticket.content)}">${escapeHtml(ticket.content)}</div>
+                </td>
+                <td><span class="badge bg-secondary">${ticket.channel}</span></td>
+                <td>${ticket.predicted_queue || '-'}</td>
+                <td class="${confidenceClass} fw-bold">${confidence}</td>
+                <td>${ticket.has_override ?
+                    '<span class="badge bg-warning">是</span>' :
+                    '<span class="badge bg-light text-dark">否</span>'}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        ${ticket.ticket_id ? `
+                            <button class="btn btn-outline-primary" onclick="viewTicket(${ticket.ticket_id})" title="查看工单">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        ` : ''}
+                        ${ticket.error_message ? `
+                            <button class="btn btn-outline-danger" onclick="showError('${escapeHtml(ticket.error_message)}')" title="查看错误">
+                                <i class="bi bi-exclamation-triangle"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                </td>
+            </tr>
+            ${ticket.override ? `
+            <tr class="table-warning">
+                <td colspan="8">
+                    <div class="small">
+                        <i class="bi bi-pencil-square me-1"></i>
+                        <strong>已改判：</strong>
+                        原队列: ${ticket.override.original_prediction} →
+                        改判为: ${ticket.override.corrected_queue}
+                        <span class="text-muted">| 操作者: ${ticket.override.operator}</span>
+                        ${ticket.override.reason ? `<span class="text-muted">| 原因: ${escapeHtml(ticket.override.reason)}</span>` : ''}
+                    </div>
+                </td>
+            </tr>
+            ` : ''}
+        `;
+    });
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function getStatusBadge(status) {
+    const statusMap = {
+        'pending': { class: 'bg-secondary', text: '等待中' },
+        'processing': { class: 'bg-info', text: '处理中' },
+        'completed': { class: 'bg-success', text: '全部成功' },
+        'partial_failed': { class: 'bg-warning', text: '部分失败' },
+        'failed': { class: 'bg-danger', text: '全部失败' }
+    };
+    const info = statusMap[status] || { class: 'bg-secondary', text: status };
+    return `<span class="badge ${info.class}">${info.text}</span>`;
+}
+
+function formatDateTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleString('zh-CN');
+}
+
+function viewTicket(ticketId) {
+    window.location.href = `/override/${ticketId}`;
+}
+
+function showError(errorMessage) {
+    showAlert('错误信息: ' + errorMessage, 'error');
+}
+
+function resetFilters() {
+    document.getElementById('filterStatus').value = '';
+    document.getElementById('filterLowConfidence').checked = false;
+    document.getElementById('filterOverridden').checked = false;
+    loadTickets();
+}
+
+function exportResults() {
+    const operator = document.getElementById('exportOperator').value.trim();
+    const format = document.getElementById('exportFormat').value;
+    const includeFailed = document.getElementById('includeFailed').checked;
+
+    if (!operator) {
+        showAlert('操作者不能为空', 'error');
+        return;
+    }
+
+    fetch(`/api/batch/${batchId}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operator, format, include_failed: includeFailed })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const downloadUrl = data.data.download_url + `&operator=${encodeURIComponent(operator)}`;
+            window.location.href = downloadUrl;
+            showAlert('导出成功', 'success');
+        } else {
+            showAlert(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('导出失败: ' + error.message, 'error');
+    });
+}
+
+function showAlert(message, type = 'info') {
+    const alertType = type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info';
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${alertType} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        <i class="bi bi-info-circle me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+    setTimeout(() => alertDiv.remove(), 5000);
+}
+
+loadBatchInfo();
+loadTickets();
+</script>
+{% endblock %}

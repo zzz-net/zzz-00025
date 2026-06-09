@@ -1,0 +1,422 @@
+{% extends 'base.html' %}
+
+{% block title %}任务中心 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">批量预测任务中心</h1>
+    <p class="page-subtitle">管理批量预测任务，查看历史批次，下载预测结果</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-cloud-upload me-2"></i>上传预测文件
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="operator" class="form-label">操作者 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="operator" name="operator"
+                               placeholder="请输入操作者姓名" required>
+                        <div class="form-text">用于权限校验和操作追踪</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="file" class="form-label">CSV 文件 <span class="text-danger">*</span></label>
+                        <input type="file" class="form-control" id="file" name="file" accept=".csv" required>
+                        <div class="form-text">文件需包含 title, content, channel 三列，最多 1000 行</div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                            <i class="bi bi-cloud-upload me-2"></i>开始批量预测
+                        </button>
+                    </div>
+                </form>
+
+                <div class="mt-4">
+                    <h6 class="text-muted mb-2">文件格式要求</h6>
+                    <div class="card bg-light">
+                        <div class="card-body py-2 small">
+                            <p class="mb-1"><strong>必需列：</strong></p>
+                            <ul class="mb-0">
+                                <li><code>title</code> - 工单标题</li>
+                                <li><code>content</code> - 工单内容</li>
+                                <li><code>channel</code> - 来源渠道</li>
+                            </ul>
+                            <p class="mt-2 mb-1"><strong>渠道可选值：</strong></p>
+                            <code>email, phone, web, app, wechat, weibo</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-funnel me-2"></i>筛选条件
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="filterOperator" class="form-label">操作者</label>
+                    <input type="text" class="form-control" id="filterOperator" placeholder="输入操作者筛选">
+                </div>
+                <div class="mb-3">
+                    <label for="filterStatus" class="form-label">状态</label>
+                    <select class="form-select" id="filterStatus">
+                        <option value="">全部</option>
+                        <option value="completed">全部成功</option>
+                        <option value="partial_failed">部分失败</option>
+                        <option value="failed">全部失败</option>
+                        <option value="processing">处理中</option>
+                    </select>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary" onclick="loadBatches()">
+                        <i class="bi bi-search me-2"></i>应用筛选
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="resetFilters()">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>重置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul me-2"></i>历史批次</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadBatches()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>刷新
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="uploadProgress" class="d-none mb-3">
+                    <div class="alert alert-info">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <span id="progressText">正在处理...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="batchList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted">正在加载批次列表...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导出模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导出批次结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="exportBatchId">
+                <div class="mb-3">
+                    <label class="form-label">操作者 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="exportOperator" placeholder="请输入操作者姓名">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">导出格式</label>
+                    <select class="form-select" id="exportFormat">
+                        <option value="csv">CSV (.csv)</option>
+                        <option value="xlsx">Excel (.xlsx)</option>
+                    </select>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="includeFailed" checked>
+                    <label class="form-check-label" for="includeFailed">包含失败行</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="doExport()">
+                    <i class="bi bi-download me-2"></i>导出
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 重复提交确认模态框 -->
+<div class="modal fade" id="duplicateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-warning"><i class="bi bi-exclamation-triangle me-2"></i>文件已提交过</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>该文件已由此操作者提交过，是否查看已有批次？</p>
+                <div id="duplicateBatchInfo" class="card bg-light p-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" id="viewDuplicateBatchBtn">
+                    <i class="bi bi-eye me-2"></i>查看批次
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentOperator = '';
+let duplicateBatchId = null;
+
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    uploadBatch();
+});
+
+document.getElementById('viewDuplicateBatchBtn').addEventListener('click', function() {
+    if (duplicateBatchId) {
+        window.location.href = `/batches/${duplicateBatchId}`;
+    }
+});
+
+function uploadBatch() {
+    const formData = new FormData(document.getElementById('uploadForm'));
+    const operator = formData.get('operator');
+    currentOperator = operator;
+
+    if (!operator || !operator.trim()) {
+        showAlert('操作者不能为空', 'error');
+        return;
+    }
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    const progressDiv = document.getElementById('uploadProgress');
+    const progressText = document.getElementById('progressText');
+
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>上传中...';
+    progressDiv.classList.remove('d-none');
+    progressText.textContent = '正在上传文件...';
+
+    fetch('/api/batch/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>开始批量预测';
+        progressDiv.classList.add('d-none');
+
+        if (data.success) {
+            showAlert(data.message, 'success');
+            document.getElementById('uploadForm').reset();
+            loadBatches();
+        } else {
+            if (data.data && data.data.is_duplicate) {
+                showDuplicateModal(data.data.existing_batch);
+            } else {
+                showAlert(data.message, 'error');
+            }
+        }
+    })
+    .catch(error => {
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>开始批量预测';
+        progressDiv.classList.add('d-none');
+        showAlert('上传失败: ' + error.message, 'error');
+    });
+}
+
+function showDuplicateModal(batch) {
+    duplicateBatchId = batch.id;
+    const infoDiv = document.getElementById('duplicateBatchInfo');
+    infoDiv.innerHTML = `
+        <p class="mb-1"><strong>批次号：</strong>${batch.batch_uid}</p>
+        <p class="mb-1"><strong>文件名：</strong>${batch.original_filename}</p>
+        <p class="mb-1"><strong>提交时间：</strong>${formatDateTime(batch.created_at)}</p>
+        <p class="mb-1"><strong>状态：</strong>${getStatusBadge(batch.status)}</p>
+        <p class="mb-0"><strong>结果：</strong>成功 ${batch.success_count} 条，失败 ${batch.failed_count} 条</p>
+    `;
+    new bootstrap.Modal(document.getElementById('duplicateModal')).show();
+}
+
+function loadBatches() {
+    const operator = document.getElementById('filterOperator').value;
+    const status = document.getElementById('filterStatus').value;
+
+    let url = '/api/batches?limit=100';
+    if (operator) url += `&operator=${encodeURIComponent(operator)}`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            renderBatchList(data.data.batches);
+        } else {
+            showAlert(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('加载失败: ' + error.message, 'error');
+    });
+}
+
+function renderBatchList(batches) {
+    const container = document.getElementById('batchList');
+
+    if (!batches || batches.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                <p class="text-muted mb-2">暂无批次记录</p>
+                <p class="text-muted small">上传 CSV 文件开始批量预测</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="table-responsive"><table class="table table-hover align-middle">';
+    html += `
+        <thead class="table-light">
+            <tr>
+                <th>批次号</th>
+                <th>文件名</th>
+                <th>操作者</th>
+                <th>模型版本</th>
+                <th>结果</th>
+                <th>状态</th>
+                <th>提交时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    batches.forEach(batch => {
+        const modelVersion = batch.model_version_snapshot ?
+            `v${batch.model_version_snapshot.version}` : '未知';
+
+        html += `
+            <tr>
+                <td><code class="small">${batch.batch_uid}</code></td>
+                <td>${batch.original_filename}</td>
+                <td>${batch.operator}</td>
+                <td>${modelVersion}</td>
+                <td>
+                    <span class="text-success">${batch.success_count} 成功</span> /
+                    <span class="text-danger">${batch.failed_count} 失败</span>
+                </td>
+                <td>${getStatusBadge(batch.status)}</td>
+                <td><small>${formatDateTime(batch.created_at)}</small></td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" onclick="viewBatch(${batch.id})" title="查看详情">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="btn btn-outline-success" onclick="openExportModal(${batch.id})" title="导出结果">
+                            <i class="bi bi-download"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function getStatusBadge(status) {
+    const statusMap = {
+        'pending': { class: 'bg-secondary', text: '等待中' },
+        'processing': { class: 'bg-info', text: '处理中' },
+        'completed': { class: 'bg-success', text: '全部成功' },
+        'partial_failed': { class: 'bg-warning', text: '部分失败' },
+        'failed': { class: 'bg-danger', text: '全部失败' }
+    };
+    const info = statusMap[status] || { class: 'bg-secondary', text: status };
+    return `<span class="badge ${info.class}">${info.text}</span>`;
+}
+
+function formatDateTime(isoString) {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    return date.toLocaleString('zh-CN');
+}
+
+function viewBatch(batchId) {
+    window.location.href = `/batches/${batchId}`;
+}
+
+function openExportModal(batchId) {
+    document.getElementById('exportBatchId').value = batchId;
+    document.getElementById('exportOperator').value = currentOperator || '';
+    new bootstrap.Modal(document.getElementById('exportModal')).show();
+}
+
+function doExport() {
+    const batchId = document.getElementById('exportBatchId').value;
+    const operator = document.getElementById('exportOperator').value.trim();
+    const format = document.getElementById('exportFormat').value;
+    const includeFailed = document.getElementById('includeFailed').checked;
+
+    if (!operator) {
+        showAlert('操作者不能为空', 'error');
+        return;
+    }
+
+    fetch(`/api/batch/${batchId}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operator, format, include_failed: includeFailed })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const downloadUrl = data.data.download_url + `&operator=${encodeURIComponent(operator)}`;
+            window.location.href = downloadUrl;
+            bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
+            showAlert('导出成功', 'success');
+        } else {
+            showAlert(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('导出失败: ' + error.message, 'error');
+    });
+}
+
+function resetFilters() {
+    document.getElementById('filterOperator').value = '';
+    document.getElementById('filterStatus').value = '';
+    loadBatches();
+}
+
+function showAlert(message, type = 'info') {
+    const alertType = type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info';
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${alertType} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        <i class="bi bi-info-circle me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+    setTimeout(() => alertDiv.remove(), 5000);
+}
+
+loadBatches();
+</script>
+{% endblock %}

@@ -60,6 +60,11 @@
                             <i class="bi bi-file-earmark-text me-1"></i>报告
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'batches_page' %}active{% endif %}" href="{{ url_for('batches_page') }}">
+                            <i class="bi bi-collection me-1"></i>任务中心
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>

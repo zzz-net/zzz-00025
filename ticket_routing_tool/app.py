@@ -12,6 +12,10 @@ from src.predictor import predict_ticket, get_active_model, get_queue_suggestion
 from src.human_override import create_override, list_overrides, get_override_stats
 from src.rollback import list_rollback_candidates, rollback_to_version, get_version_history, get_active_version
 from src.report_exporter import export_audit_report, export_model_comparison_report
+from src.batch_manager import (
+    create_batch, process_batch, get_batch, list_batches,
+    get_batch_tickets, export_batch_results
+)
 import config
 
 
@@ -29,6 +33,7 @@ def create_app():
     os.makedirs(config.DATASET_DIR, exist_ok=True)
     os.makedirs(config.MODEL_DIR, exist_ok=True)
     os.makedirs(config.REPORT_DIR, exist_ok=True)
+    os.makedirs(config.BATCH_RESULT_DIR, exist_ok=True)
 
     def json_response(success, message, data=None):
         return jsonify({
@@ -212,6 +217,14 @@ def create_app():
     def reports_page():
         today = date.today().isoformat()
         return render_template('reports.html', today=today)
+
+    @app.route('/batches')
+    def batches_page():
+        return render_template('batches.html')
+
+    @app.route('/batches/<int:batch_id>')
+    def batch_detail_page(batch_id):
+        return render_template('batch_detail.html', batch_id=batch_id)
 
     @app.route('/api/import', methods=['POST'])
     def api_import():
@@ -442,6 +455,191 @@ def create_app():
 
         except Exception as e:
             return json_response(False, f'导出模型对比报告失败: {str(e)}')
+
+    @app.route('/api/batch/upload', methods=['POST'])
+    def api_batch_upload():
+        try:
+            operator = request.form.get('operator', '').strip()
+            if not operator:
+                return json_response(False, '操作者不能为空，请填写 operator 字段'), 403
+
+            if 'file' not in request.files:
+                return json_response(False, '未找到上传文件')
+
+            file = request.files['file']
+            if file.filename == '':
+                return json_response(False, '未选择文件')
+
+            if not file.filename.endswith('.csv'):
+                return json_response(False, '仅支持 CSV 格式文件')
+
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_filename = f"temp_batch_{datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}.csv"
+            temp_path = os.path.join(temp_dir, temp_filename)
+            file.save(temp_path)
+
+            original_filename = secure_filename(file.filename)
+
+            success, result = create_batch(original_filename, operator, temp_path, app)
+
+            if not success:
+                os.remove(temp_path)
+                if 'existing_batch' in result:
+                    return json_response(False, result['error'], {
+                        'existing_batch': result['existing_batch'],
+                        'is_duplicate': True
+                    }), 409
+                return json_response(False, result['error']), 400
+
+            batch_id = result['batch_id']
+
+            process_result = process_batch(batch_id, temp_path, app)
+
+            os.remove(temp_path)
+
+            if not process_result['success']:
+                return json_response(False, process_result.get('error', '批次处理失败'), {
+                    'batch_id': batch_id
+                })
+
+            batch_info = get_batch(batch_id, app, include_details=True)
+
+            return json_response(True, f'批次预测完成，成功 {process_result["success_count"]} 条，失败 {process_result["failed_count"]} 条', {
+                'batch_id': batch_id,
+                'batch_uid': result['batch_uid'],
+                'batch': batch_info,
+                'success_count': process_result['success_count'],
+                'failed_count': process_result['failed_count'],
+                'total_count': process_result['total_count']
+            })
+
+        except Exception as e:
+            return json_response(False, f'批量预测失败: {str(e)}'), 500
+
+    @app.route('/api/batches', methods=['GET'])
+    def api_list_batches():
+        try:
+            operator = request.args.get('operator', '').strip()
+            status = request.args.get('status', '').strip() or None
+            limit = int(request.args.get('limit', 100))
+            offset = int(request.args.get('offset', 0))
+
+            batches, total = list_batches(app, operator=operator or None, status=status, limit=limit, offset=offset)
+
+            return json_response(True, '查询成功', {
+                'batches': batches,
+                'total': total,
+                'limit': limit,
+                'offset': offset
+            })
+
+        except Exception as e:
+            return json_response(False, f'查询批次列表失败: {str(e)}'), 500
+
+    @app.route('/api/batch/<int:batch_id>', methods=['GET'])
+    def api_get_batch(batch_id):
+        try:
+            batch = get_batch(batch_id, app, include_details=True)
+            if batch is None:
+                return json_response(False, '批次不存在'), 404
+
+            return json_response(True, '查询成功', {'batch': batch})
+
+        except Exception as e:
+            return json_response(False, f'查询批次详情失败: {str(e)}'), 500
+
+    @app.route('/api/batch/<int:batch_id>/tickets', methods=['GET'])
+    def api_get_batch_tickets(batch_id):
+        try:
+            status = request.args.get('status', '').strip() or None
+            low_confidence_only = request.args.get('low_confidence_only', 'false').lower() == 'true'
+            overridden_only = request.args.get('overridden_only', 'false').lower() == 'true'
+            limit = int(request.args.get('limit', 1000))
+            offset = int(request.args.get('offset', 0))
+
+            tickets, total = get_batch_tickets(
+                batch_id, app,
+                status=status,
+                low_confidence_only=low_confidence_only,
+                overridden_only=overridden_only,
+                limit=limit,
+                offset=offset
+            )
+
+            return json_response(True, '查询成功', {
+                'tickets': tickets,
+                'total': total,
+                'limit': limit,
+                'offset': offset
+            })
+
+        except Exception as e:
+            return json_response(False, f'查询批次工单失败: {str(e)}'), 500
+
+    @app.route('/api/batch/<int:batch_id>/export', methods=['POST'])
+    def api_export_batch(batch_id):
+        try:
+            data = request.get_json() or request.form
+            operator = data.get('operator', '').strip()
+            format_type = data.get('format', 'csv').strip().lower()
+            include_failed = data.get('include_failed', 'true').lower() != 'false'
+
+            if not operator:
+                return json_response(False, '操作者不能为空，无权下载'), 403
+
+            if format_type not in ['csv', 'xlsx']:
+                return json_response(False, '不支持的格式，仅支持 csv 或 xlsx')
+
+            success, result = export_batch_results(
+                batch_id, app,
+                format_type=format_type,
+                include_failed=include_failed,
+                operator=operator
+            )
+
+            if not success:
+                return json_response(False, result['error']), 400
+
+            return json_response(True, '导出成功', {
+                'download_url': f'/api/batch/{batch_id}/download?filename={result["filename"]}',
+                'filename': result['filename'],
+                'row_count': result['row_count'],
+                'format': result['format']
+            })
+
+        except Exception as e:
+            return json_response(False, f'导出批次结果失败: {str(e)}'), 500
+
+    @app.route('/api/batch/<int:batch_id>/download', methods=['GET'])
+    def api_download_batch(batch_id):
+        try:
+            from flask import send_from_directory
+
+            operator = request.args.get('operator', '').strip()
+            if not operator:
+                return json_response(False, '操作者不能为空，无权下载'), 403
+
+            filename = request.args.get('filename', '')
+            if not filename:
+                return json_response(False, '文件名不能为空'), 400
+
+            if '..' in filename or filename.startswith('/'):
+                return json_response(False, '无效的文件名'), 400
+
+            file_path = os.path.join(config.BATCH_RESULT_DIR, filename)
+            if not os.path.exists(file_path):
+                return json_response(False, '文件不存在'), 404
+
+            return send_from_directory(
+                config.BATCH_RESULT_DIR,
+                filename,
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            return json_response(False, f'下载失败: {str(e)}'), 500
 
     @app.errorhandler(404)
     def not_found(error):

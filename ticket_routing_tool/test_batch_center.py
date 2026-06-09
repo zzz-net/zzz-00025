@@ -348,6 +348,96 @@ def main():
     os.remove(temp_path5)
     os.remove(temp_path6)
 
+    print_step(15, "回归测试 - 导出接口 JSON 布尔值参数解析")
+    client = app.test_client()
+
+    print("  测试 1: include_failed = true (JSON 布尔值) - 应包含 10 行")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'csv', 'include_failed': True})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 10, f"应该返回 10 行，实际 {data['data']['row_count']} 行"
+    print_result("JSON 布尔值 true - 包含失败行，10 行")
+
+    print("  测试 2: include_failed = false (JSON 布尔值) - 应包含 8 行")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'csv', 'include_failed': False})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 8, f"应该返回 8 行，实际 {data['data']['row_count']} 行"
+    print_result("JSON 布尔值 false - 不包含失败行，8 行")
+
+    print("  测试 3: include_failed = \"true\" (字符串) - 应包含 10 行")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'csv', 'include_failed': 'true'})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 10, f"应该返回 10 行，实际 {data['data']['row_count']} 行"
+    print_result("字符串 \"true\" - 包含失败行，10 行")
+
+    print("  测试 4: include_failed = \"false\" (字符串) - 应包含 8 行")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'csv', 'include_failed': 'false'})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 8, f"应该返回 8 行，实际 {data['data']['row_count']} 行"
+    print_result("字符串 \"false\" - 不包含失败行，8 行")
+
+    print("  测试 5: 缺省 include_failed - 应包含 10 行（默认 true）")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'csv'})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 10, f"应该返回 10 行，实际 {data['data']['row_count']} 行"
+    print_result("缺省参数 - 默认包含失败行，10 行")
+
+    print("  测试 6: Excel 格式 + JSON 布尔值 false")
+    response = client.post(f'/api/batch/{batch_id2}/export',
+        json={'operator': test_operator, 'format': 'xlsx', 'include_failed': False})
+    assert response.status_code == 200, f"请求失败: {response.status_code}"
+    data = response.get_json()
+    assert data['success'], f"导出失败: {data.get('message')}"
+    assert data['data']['row_count'] == 8, f"应该返回 8 行，实际 {data['data']['row_count']} 行"
+    assert data['data']['format'] == 'xlsx', "格式应该为 xlsx"
+    print_result("Excel 格式 + 布尔值 false - 8 行")
+
+    print_step(16, "真实 API 链路测试 - 模拟页面按钮请求")
+    print("  模拟 batches.html 页面导出按钮请求（JSON 格式）")
+    batch_for_test = batch_id2
+
+    response1 = client.post(f'/api/batch/{batch_for_test}/export',
+        json={'operator': test_operator, 'format': 'csv', 'include_failed': True},
+        content_type='application/json')
+    assert response1.status_code == 200
+    data1 = response1.get_json()
+    assert data1['success']
+    print_result(f"页面导出请求 1 (include_failed=true) 成功: {data1['data']['filename']}")
+
+    download_url1 = data1['data']['download_url'] + f"&operator={test_operator}"
+    response_dl1 = client.get(download_url1)
+    assert response_dl1.status_code == 200, f"下载失败: {response_dl1.status_code}"
+    assert response_dl1.headers['Content-Disposition'] is not None
+    print_result("下载链接 1 验证成功")
+
+    response2 = client.post(f'/api/batch/{batch_for_test}/export',
+        json={'operator': test_operator, 'format': 'xlsx', 'include_failed': False},
+        content_type='application/json')
+    assert response2.status_code == 200
+    data2 = response2.get_json()
+    assert data2['success']
+    print_result(f"页面导出请求 2 (include_failed=false) 成功: {data2['data']['filename']}")
+
+    download_url2 = data2['data']['download_url'] + f"&operator={test_operator}"
+    response_dl2 = client.get(download_url2)
+    assert response_dl2.status_code == 200
+    assert response_dl2.headers['Content-Disposition'] is not None
+    print_result("下载链接 2 验证成功")
+
     print("\n" + "#" * 80)
     print("#" + " " * 78 + "#")
     print("#" + " " * 30 + "测试完成！所有步骤通过 [OK]" + " " * 25 + "#")
@@ -369,6 +459,8 @@ def main():
     print(f"  [OK] 工单筛选 - 低置信度和已改判 - 成功")
     print(f"  [OK] 服务重启后查询 - 数据持久化 - 成功")
     print(f"  [OK] 同名文件不同内容 - 允许提交 - 成功")
+    print(f"  [OK] 回归测试 - 导出接口布尔参数解析 - 成功")
+    print(f"  [OK] 真实 API 链路测试 - 模拟页面按钮请求 - 成功")
 
     print("\n测试场景覆盖:")
     print(f"  [OK] 批量导入（文件上传 + 批次记录）")
@@ -382,6 +474,8 @@ def main():
     print(f"  [OK] 配置快照保存")
     print(f"  [OK] 低置信度筛选")
     print(f"  [OK] 已改判记录筛选")
+    print(f"  [OK] 导出接口 JSON 布尔值参数解析（回归测试）")
+    print(f"  [OK] 包含/排除失败记录筛选语义验证")
 
     print("\n生成的文件:")
     print(f"  - 训练数据: {training_data_path}")

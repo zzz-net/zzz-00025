@@ -583,7 +583,8 @@ def create_app():
             data = request.get_json() or request.form
             operator = data.get('operator', '').strip()
             format_type = data.get('format', 'csv').strip().lower()
-            include_failed = data.get('include_failed', 'true').lower() != 'false'
+            include_failed_raw = data.get('include_failed', True)
+            include_failed = include_failed_raw if isinstance(include_failed_raw, bool) else str(include_failed_raw).lower() != 'false'
 
             if not operator:
                 return json_response(False, '操作者不能为空，无权下载'), 403

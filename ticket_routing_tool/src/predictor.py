@@ -53,8 +53,10 @@ def predict_ticket(title: str, content: str, channel: str, app) -> Dict[str, Any
         )
         db.session.add(ticket)
         db.session.commit()
+        ticket_id = ticket.id
     
     return {
+        'ticket_id': ticket_id,
         'predicted_queue': predicted_queue,
         'confidence': confidence,
         'model_version_id': active_model.id
@@ -93,8 +95,10 @@ def predict_batch(tickets: List[Dict[str, str]], app) -> List[Dict[str, Any]]:
                 model_version_id=active_model.id
             )
             db.session.add(ticket)
+            db.session.flush()
             
             results.append({
+                'ticket_id': ticket.id,
                 'predicted_queue': predicted_queue,
                 'confidence': confidence,
                 'model_version_id': active_model.id

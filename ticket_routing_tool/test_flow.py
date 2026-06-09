@@ -88,12 +88,9 @@ def main():
     with app.app_context():
         model_version = ModelVersion.query.get(model_version_id)
         assert model_version is not None, "模型版本不存在"
-        assert model_version.status == "completed", f"模型状态应为 completed，实际为 {model_version.status}"
-        
-        model_version.is_active = True
-        model_version.status = "active"
-        db.session.commit()
-        print_result("模型已激活")
+        assert model_version.status == "active", f"模型状态应为 active，实际为 {model_version.status}"
+        assert model_version.is_active, f"模型 is_active 应为 True，实际为 {model_version.is_active}"
+        print_result("模型已自动激活")
     
     first_model_version_id = model_version_id
 
@@ -317,17 +314,15 @@ def main():
         new_model_version_id = new_train_result.get("model_version_id")
         
         with app.app_context():
-            current_active = ModelVersion.query.filter_by(is_active=True).first()
-            if current_active:
-                current_active.is_active = False
-                current_active.status = "rolled_back"
-            
             new_model = ModelVersion.query.get(new_model_version_id)
-            new_model.is_active = True
-            new_model.status = "active"
-            db.session.commit()
+            assert new_model.status == "active", f"新模型状态应为 active，实际为 {new_model.status}"
+            assert new_model.is_active, f"新模型 is_active 应为 True，实际为 {new_model.is_active}"
+            
+            old_model = ModelVersion.query.get(first_model_version_id)
+            assert old_model.status == "rolled_back", f"旧模型状态应为 rolled_back，实际为 {old_model.status}"
+            assert not old_model.is_active, f"旧模型 is_active 应为 False，实际为 {old_model.is_active}"
         
-        print_result(f"新模型已激活，ID: {new_model_version_id}")
+        print_result(f"新模型已自动激活，ID: {new_model_version_id}")
         
         active_version = get_active_version(app)
         print(f"当前激活版本: {active_version['id']} - {active_version['version']}")

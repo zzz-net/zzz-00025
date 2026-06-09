@@ -48,7 +48,8 @@ def predict_ticket(title: str, content: str, channel: str, app) -> Dict[str, Any
             channel=channel,
             predicted_queue=predicted_queue,
             confidence=confidence,
-            predicted_at=datetime.utcnow()
+            predicted_at=datetime.utcnow(),
+            model_version_id=active_model.id
         )
         db.session.add(ticket)
         db.session.commit()
@@ -88,7 +89,8 @@ def predict_batch(tickets: List[Dict[str, str]], app) -> List[Dict[str, Any]]:
                 channel=channel,
                 predicted_queue=predicted_queue,
                 confidence=confidence,
-                predicted_at=datetime.utcnow()
+                predicted_at=datetime.utcnow(),
+                model_version_id=active_model.id
             )
             db.session.add(ticket)
             

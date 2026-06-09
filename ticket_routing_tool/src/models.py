@@ -73,8 +73,10 @@ class Ticket(db.Model):
     actual_queue = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     predicted_at = db.Column(db.DateTime, nullable=True)
+    model_version_id = db.Column(db.Integer, db.ForeignKey('model_versions.id'), nullable=True)
 
     human_overrides = db.relationship('HumanOverride', backref='ticket', lazy=True)
+    model_version = db.relationship('ModelVersion', backref='tickets', lazy=True)
 
     def to_dict(self):
         return {
@@ -87,7 +89,8 @@ class Ticket(db.Model):
             'confidence': self.confidence,
             'actual_queue': self.actual_queue,
             'created_at': self.created_at,
-            'predicted_at': self.predicted_at
+            'predicted_at': self.predicted_at,
+            'model_version_id': self.model_version_id
         }
 
 

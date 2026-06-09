@@ -15,6 +15,7 @@ os.makedirs(REPORT_DIR, exist_ok=True)
 def export_audit_report(start_date: str, end_date: str, app, format: str = 'xlsx') -> Dict[str, Any]:
     start_dt = datetime.fromisoformat(start_date)
     end_dt = datetime.fromisoformat(end_date)
+    end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     with app.app_context():
         tickets_query = db.session.query(Ticket).filter(
@@ -26,6 +27,8 @@ def export_audit_report(start_date: str, end_date: str, app, format: str = 'xlsx
         tickets_data = []
         for ticket in tickets:
             is_overridden = db.session.query(HumanOverride).filter_by(ticket_id=ticket.id).first() is not None
+            model_version = ticket.model_version
+            dataset_name = model_version.dataset.name if model_version and model_version.dataset else None
             tickets_data.append({
                 '工单ID': ticket.id,
                 '标题': ticket.title,
@@ -33,7 +36,12 @@ def export_audit_report(start_date: str, end_date: str, app, format: str = 'xlsx
                 '预测队列': ticket.predicted_queue,
                 '置信度': ticket.confidence,
                 '实际队列': ticket.actual_queue,
-                '是否被改判': '是' if is_overridden else '否'
+                '是否被改判': '是' if is_overridden else '否',
+                '模型版本ID': ticket.model_version_id,
+                '模型版本号': model_version.version if model_version else None,
+                '数据集ID': model_version.dataset_id if model_version else None,
+                '数据集名称': dataset_name,
+                '预测时间': ticket.predicted_at.isoformat() if ticket.predicted_at else None
             })
         tickets_df = pd.DataFrame(tickets_data)
 
@@ -45,13 +53,19 @@ def export_audit_report(start_date: str, end_date: str, app, format: str = 'xlsx
 
         overrides_data = []
         for override in overrides:
+            model_version = override.model_version
+            dataset_name = model_version.dataset.name if model_version and model_version.dataset else None
             overrides_data.append({
                 '工单ID': override.ticket_id,
                 '原预测': override.original_prediction,
                 '改判后队列': override.corrected_queue,
                 '操作者': override.operator,
                 '原因': override.reason,
-                '时间': override.created_at.isoformat() if override.created_at else None
+                '时间': override.created_at.isoformat() if override.created_at else None,
+                '模型版本ID': override.model_version_id,
+                '模型版本号': model_version.version if model_version else None,
+                '数据集ID': model_version.dataset_id if model_version else None,
+                '数据集名称': dataset_name
             })
         overrides_df = pd.DataFrame(overrides_data)
 
@@ -123,13 +137,22 @@ def export_model_comparison_report(app, format: str = 'xlsx') -> Dict[str, Any]:
         comparison_data = []
         for model in models:
             metrics = model.metrics or {}
+            overall = metrics.get('overall', {}) if isinstance(metrics, dict) else {}
             comparison_data.append({
                 '模型ID': model.id,
                 '版本号': model.version,
                 '数据集ID': model.dataset_id,
+                '数据集名称': model.dataset.name if model.dataset else None,
                 '训练时间': model.trained_at.isoformat() if model.trained_at else None,
                 '是否激活': '是' if model.is_active else '否',
-                **metrics
+                '状态': model.status,
+                '准确率': overall.get('accuracy'),
+                '宏平均精确率': overall.get('macro_precision'),
+                '宏平均召回率': overall.get('macro_recall'),
+                '宏平均F1': overall.get('macro_f1'),
+                '加权平均精确率': overall.get('weighted_precision'),
+                '加权平均召回率': overall.get('weighted_recall'),
+                '加权平均F1': overall.get('weighted_f1')
             })
         comparison_df = pd.DataFrame(comparison_data)
 

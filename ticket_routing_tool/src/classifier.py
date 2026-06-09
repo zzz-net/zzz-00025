@@ -163,6 +163,16 @@ def train_model(dataset_id: int, app: Any) -> Dict[str, Any]:
             model_version.metrics = eval_result["metrics"]
             model_version.status = "completed"
             model_version.trained_at = datetime.utcnow()
+
+            existing_active = ModelVersion.query.filter_by(is_active=True).all()
+            for active in existing_active:
+                active.is_active = False
+                active.status = "rolled_back"
+                db.session.add(active)
+
+            model_version.is_active = True
+            model_version.status = "active"
+            db.session.add(model_version)
             db.session.commit()
 
             save_evaluation_report(

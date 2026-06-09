@@ -1,0 +1,11 @@
+﻿title,content,channel,tags
+系统登录失败,用户反馈登录时提示用户名或密码错误，但确认输入正确,email,
+无法重置密码,点击忘记密码后，收不到验证码,phone,unknown_tag
+账单金额异常,本月账单金额比上月高出300%,invalid_channel,billing
+功能建议,希望能增加批量导出功能,app,"invalid_label,product_inquiry"
+服务态度投诉,客服人员回复不及时，态度敷衍,wechat,
+支付失败,使用支付宝支付时提示支付网关异常,unknown_channel,"technical_support,unknown_tag"
+账号被盗,发现账号在异地登录，个人信息可能泄露,phone,
+页面加载缓慢,首页加载需要10秒以上,web,"unknown_label,bug_report"
+套餐变更咨询,想了解目前有哪些优惠套餐,sms,product_inquiry
+退款申请,购买的服务未使用，申请退款,email,invalid_tag

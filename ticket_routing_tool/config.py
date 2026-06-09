@@ -61,3 +61,9 @@ METRIC_EXPLANATIONS = {
     'accuracy': '准确率：预测正确的样本占总样本的比例',
     'support': '支持数：该类别在数据集中的样本数量'
 }
+
+USAGE_WINDOW_DAYS = 7
+
+OPERATION_LOG_DIR = os.path.join(BASE_DIR, 'data', 'operation_logs')
+
+COMPARISON_EXPORT_FORMATS = ['csv', 'json']

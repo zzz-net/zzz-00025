@@ -245,3 +245,26 @@ class ModelActivationLog(db.Model):
             'error_message': self.error_message,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class OperationLog(db.Model):
+    __tablename__ = 'operation_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    operation_type = db.Column(db.String(50), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, index=True)
+    operator = db.Column(db.String(100), nullable=True)
+    details = db.Column(JSON, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'operation_type': self.operation_type,
+            'status': self.status,
+            'operator': self.operator,
+            'details': self.details,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }

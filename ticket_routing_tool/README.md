@@ -264,3 +264,66 @@ ticket_routing_tool/
 10. 批次记录会保存模型版本快照，模型回滚不影响历史批次的模型信息
 11. 失败行会被记录但不会中断整批处理，错误信息会包含在导出文件中
 12. 所有批次数据持久化存储，服务重启后可继续查看和操作
+
+## 模型版本管理验证入口
+
+### 页面验证
+1. **版本对比**：访问 `/rollback` 页面，在"版本对比"区域选择两个已完成的模型版本，点击对比按钮查看指标差异
+2. **手动激活**：在"所有版本"表格中，点击非失败版本的"激活"按钮，确认操作者后完成激活
+3. **切换历史**：在左侧"版本切换历史"区域查看最近的切换记录（最多显示20条）
+
+### API 验证
+```bash
+# 1. 版本对比
+curl -X POST http://localhost:5000/api/model/compare \
+  -H "Content-Type: application/json" \
+  -d '{"version_a_id": 1, "version_b_id": 2}'
+
+# 2. 手动激活
+curl -X POST http://localhost:5000/api/model/activate/1 \
+  -H "Content-Type: application/json" \
+  -d '{"operator": "admin"}'
+
+# 3. 查看激活历史
+curl http://localhost:5000/api/model/activation-history?limit=10
+
+# 4. 查看版本详情
+curl http://localhost:5000/api/model/1
+```
+
+### 回归测试验证
+运行专用的版本管理回归测试：
+```bash
+cd ticket_routing_tool
+python regression_test_version_management.py
+```
+
+## 模型版本管理限制说明
+
+### 激活限制
+1. **失败版本不能激活**：状态为 `failed` 的模型版本无法被激活
+2. **文件缺失不能激活**：模型文件（.pkl）或向量化器文件（_vectorizer.pkl）缺失时无法激活
+3. **重复激活会被拒绝**：尝试激活当前已激活的版本会返回 `ALREADY_ACTIVE` 错误
+4. **并发安全**：使用线程锁确保并发激活时始终只有一个 active 版本
+
+### 错误码说明
+| 错误码 | 说明 | HTTP 状态码 |
+|--------|------|-------------|
+| `NOT_FOUND` | 模型版本不存在 | 404 |
+| `FAILED_VERSION` | 目标版本状态为失败 | 400 |
+| `FILE_MISSING` | 模型文件缺失 | 400 |
+| `VECTORIZER_MISSING` | 向量化器文件缺失 | 400 |
+| `ALREADY_ACTIVE` | 目标版本已经是激活版本 | 409 |
+| `INTERNAL_ERROR` | 内部错误 | 500 |
+
+### 切换日志说明
+- 所有激活操作（包括成功、失败、跳过）都会记录到 `model_activation_logs` 表
+- 日志记录包含：操作时间、操作者、操作类型、目标版本、前一版本、状态、错误信息
+- 服务重启后日志保留，可通过 API 或页面查询最近20条记录
+- 训练自动激活标记操作者为 `training`，回滚操作标记为 `rollback`
+
+### 数据一致性保证
+1. 激活操作使用数据库事务，失败时自动回滚
+2. 始终只有一个 `is_active=True` 的模型版本
+3. 历史预测记录的 `model_version_id` 保持不变，不受版本切换影响
+4. 批次记录保存模型版本快照，回滚不影响历史批次的模型信息

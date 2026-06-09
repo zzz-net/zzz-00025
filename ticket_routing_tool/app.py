@@ -10,7 +10,13 @@ from src.csv_importer import import_csv, list_datasets, get_dataset
 from src.classifier import train_model
 from src.predictor import predict_ticket, get_active_model, get_queue_suggestion, predict_batch
 from src.human_override import create_override, list_overrides, get_override_stats
-from src.rollback import list_rollback_candidates, rollback_to_version, get_version_history, get_active_version, compare_versions, activate_model, get_activation_history, get_version_with_details
+from src.rollback import (
+    list_rollback_candidates, rollback_to_version, get_version_history, 
+    get_active_version, compare_versions, activate_model, get_activation_history, 
+    get_version_with_details, get_all_versions_with_details, 
+    get_available_versions_for_comparison, export_comparison_result,
+    get_usage_window_config, get_operation_history
+)
 from src.report_exporter import export_audit_report, export_model_comparison_report
 from src.batch_manager import (
     create_batch, process_batch, get_batch, list_batches,
@@ -185,6 +191,8 @@ def create_app():
     def rollback_page():
         candidates = list_rollback_candidates(app)
         history = get_activation_history(app, limit=20)
+        usage_window_config = get_usage_window_config(app)
+        available_versions = get_available_versions_for_comparison(app)
         
         with app.app_context():
             active_version_obj = ModelVersion.query.filter_by(is_active=True).first()
@@ -200,7 +208,9 @@ def create_app():
                                candidates=candidates,
                                versions=versions_data,
                                active_model=active_model,
-                               history=history)
+                               history=history,
+                               usage_window_config=usage_window_config,
+                               available_versions=available_versions)
 
     @app.route('/reports')
     def reports_page():
@@ -398,6 +408,8 @@ def create_app():
             data = request.get_json() or request.form
             version_a_id = data.get('version_a_id')
             version_b_id = data.get('version_b_id')
+            operator = data.get('operator', 'web').strip()
+            window_days = data.get('window_days')
 
             if not version_a_id or not version_b_id:
                 return json_response(False, '缺少必填字段: version_a_id, version_b_id'), 400
@@ -408,20 +420,95 @@ def create_app():
             except (ValueError, TypeError):
                 return json_response(False, '版本 ID 必须是整数'), 400
 
-            result = compare_versions(version_a_id, version_b_id, app)
+            if window_days is not None:
+                try:
+                    window_days = int(window_days)
+                    if window_days < 1 or window_days > 365:
+                        return json_response(False, '时间窗口天数必须在 1-365 之间'), 400
+                except (ValueError, TypeError):
+                    return json_response(False, '时间窗口天数必须是整数'), 400
+
+            result = compare_versions(version_a_id, version_b_id, app, operator=operator, window_days=window_days)
 
             if result.get('success'):
                 return json_response(True, '版本对比成功', {
                     'version_a': result.get('version_a'),
                     'version_b': result.get('version_b'),
                     'metrics_diff': result.get('metrics_diff'),
-                    'comparison': result.get('comparison')
+                    'comparison': result.get('comparison'),
+                    'window_days': result.get('window_days')
                 })
             else:
-                return json_response(False, result.get('error', '版本对比失败')), 404
+                response_data = {'error_code': result.get('error_code')}
+                if 'available_versions' in result:
+                    response_data['available_versions'] = result.get('available_versions')
+                return json_response(False, result.get('error', '版本对比失败'), response_data), 400
 
         except Exception as e:
             return json_response(False, f'版本对比失败: {str(e)}'), 500
+
+    @app.route('/api/model/compare/export', methods=['POST'])
+    def api_model_compare_export():
+        try:
+            data = request.get_json() or request.form
+            comparison_data = data.get('comparison_data')
+            format_type = data.get('format', 'csv').strip().lower()
+            operator = data.get('operator', 'web').strip()
+
+            if not comparison_data:
+                return json_response(False, '缺少对比数据'), 400
+
+            if format_type not in config.COMPARISON_EXPORT_FORMATS:
+                return json_response(False, f"不支持的格式，仅支持 {', '.join(config.COMPARISON_EXPORT_FORMATS)}"), 400
+
+            result = export_comparison_result(comparison_data, format_type, app, operator=operator)
+
+            if result.get('success'):
+                return json_response(True, '导出成功', {
+                    'output_path': result.get('output_path'),
+                    'filename': result.get('filename'),
+                    'format': result.get('format'),
+                    'download_url': f"/api/reports/download?filename={result.get('filename')}"
+                })
+            else:
+                return json_response(False, result.get('error', '导出失败'), {
+                    'error_code': result.get('error_code')
+                }), 400
+
+        except Exception as e:
+            return json_response(False, f'导出失败: {str(e)}'), 500
+
+    @app.route('/api/model/available', methods=['GET'])
+    def api_model_available():
+        try:
+            versions = get_available_versions_for_comparison(app)
+            return json_response(True, '查询成功', {
+                'versions': versions,
+                'total': len(versions)
+            })
+        except Exception as e:
+            return json_response(False, f'查询可用版本失败: {str(e)}'), 500
+
+    @app.route('/api/config/usage-window', methods=['GET'])
+    def api_config_usage_window():
+        try:
+            config_data = get_usage_window_config(app)
+            return json_response(True, '查询成功', config_data)
+        except Exception as e:
+            return json_response(False, f'查询配置失败: {str(e)}'), 500
+
+    @app.route('/api/operation-logs', methods=['GET'])
+    def api_operation_logs():
+        try:
+            operation_type = request.args.get('operation_type', '').strip() or None
+            limit = int(request.args.get('limit', 50))
+            logs = get_operation_history(app, operation_type=operation_type, limit=limit)
+            return json_response(True, '查询成功', {
+                'logs': logs,
+                'total': len(logs)
+            })
+        except Exception as e:
+            return json_response(False, f'查询操作日志失败: {str(e)}'), 500
 
     @app.route('/api/model/activate/<int:model_version_id>', methods=['POST'])
     def api_model_activate(model_version_id):
@@ -703,6 +790,32 @@ def create_app():
 
             return send_from_directory(
                 config.BATCH_RESULT_DIR,
+                filename,
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            return json_response(False, f'下载失败: {str(e)}'), 500
+
+    @app.route('/api/reports/download', methods=['GET'])
+    def api_report_download():
+        try:
+            from flask import send_from_directory
+
+            filename = request.args.get('filename', '').strip()
+            if not filename:
+                return json_response(False, '文件名不能为空'), 400
+
+            if '..' in filename or filename.startswith('/'):
+                return json_response(False, '无效的文件名'), 400
+
+            file_path = os.path.join(config.REPORT_DIR, filename)
+            if not os.path.exists(file_path):
+                return json_response(False, '文件不存在'), 404
+
+            return send_from_directory(
+                config.REPORT_DIR,
                 filename,
                 as_attachment=True,
                 download_name=filename

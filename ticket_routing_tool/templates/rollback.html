@@ -51,11 +51,21 @@
                             <div class="card bg-light">
                                 <div class="card-body py-2">
                                     <div class="fw-bold fs-5">{{ active_model.get('usage_count', 0) }}</div>
-                                    <div class="small text-muted">预测使用量</div>
+                                    <div class="small text-muted">历史总使用量</div>
                                 </div>
                             </div>
                         </div>
                         <div class="col-6">
+                            <div class="card bg-light">
+                                <div class="card-body py-2">
+                                    <div class="fw-bold fs-5">{{ active_model.get('recent_usage_count', 0) }}</div>
+                                    <div class="small text-muted">最近{{ usage_window_config.window_days }}天使用量</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-12">
                             <div class="card bg-light">
                                 <div class="card-body py-2">
                                     <div class="fw-bold fs-5">{{ active_model.get('dataset_row_count', 0) }}</div>
@@ -137,12 +147,13 @@
                         <label class="form-label">版本 A</label>
                         <select class="form-select" id="compareVersionA">
                             <option value="">选择版本...</option>
-                            {% for v in versions %}
-                            {% if v['status'] != 'failed' %}
+                            {% for v in available_versions %}
                             <option value="{{ v['id'] }}">v{{ v['version'] }} ({{ v['dataset_name'] }})</option>
-                            {% endif %}
                             {% endfor %}
                         </select>
+                        {% if not available_versions %}
+                        <div class="form-text text-danger">暂无可用的模型版本，请先训练一个完整的模型</div>
+                        {% endif %}
                     </div>
                     <div class="col-md-2 text-center align-self-end">
                         <button class="btn btn-outline-primary w-100" onclick="compareVersions()">
@@ -153,20 +164,42 @@
                         <label class="form-label">版本 B</label>
                         <select class="form-select" id="compareVersionB">
                             <option value="">选择版本...</option>
-                            {% for v in versions %}
-                            {% if v['status'] != 'failed' %}
+                            {% for v in available_versions %}
                             <option value="{{ v['id'] }}">v{{ v['version'] }} ({{ v['dataset_name'] }})</option>
-                            {% endif %}
                             {% endfor %}
                         </select>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">时间窗口（天）</label>
+                        <input type="number" class="form-control" id="windowDays" 
+                               value="{{ usage_window_config.window_days }}" min="1" max="365"
+                               placeholder="默认 {{ usage_window_config.window_days }} 天">
+                        <div class="form-text">{{ usage_window_config.description }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">操作者</label>
+                        <input type="text" class="form-control" id="compareOperator" value="admin" placeholder="请输入操作者">
                     </div>
                 </div>
                 <div id="comparisonResult" class="d-none">
                     <div class="card bg-light">
                         <div class="card-body">
-                            <h6 class="card-title mb-3">
-                                <i class="bi bi-bar-chart me-2"></i>对比结果
-                            </h6>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-title mb-0">
+                                    <i class="bi bi-bar-chart me-2"></i>对比结果
+                                    <span id="windowInfo" class="badge bg-info ms-2"></span>
+                                </h6>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-success" onclick="exportComparison('csv')">
+                                        <i class="bi bi-filetype-csv me-1"></i>导出 CSV
+                                    </button>
+                                    <button class="btn btn-outline-primary" onclick="exportComparison('json')">
+                                        <i class="bi bi-filetype-json me-1"></i>导出 JSON
+                                    </button>
+                                </div>
+                            </div>
                             <div class="table-responsive">
                                 <table class="table table-sm mb-0">
                                     <thead>
@@ -184,7 +217,10 @@
                         </div>
                     </div>
                 </div>
-                <div id="comparisonError" class="d-none alert alert-danger mt-3"></div>
+                <div id="comparisonError" class="d-none alert alert-danger mt-3">
+                    <div id="errorMessage"></div>
+                    <div id="errorSuggestions" class="mt-2"></div>
+                </div>
             </div>
         </div>
 
@@ -203,7 +239,8 @@
                                 <th>数据集</th>
                                 <th>准确率</th>
                                 <th>F1值</th>
-                                <th>使用量</th>
+                                <th>历史总使用量</th>
+                                <th>最近{{ usage_window_config.window_days }}天使用量</th>
                                 <th>状态</th>
                                 <th>训练时间</th>
                                 <th>操作</th>
@@ -233,7 +270,8 @@
                                         <span class="text-muted">-</span>
                                     {% endif %}
                                 </td>
-                                <td><span class="badge bg-info">{{ v.get('usage_count', 0) }}</span></td>
+                                <td><span class="badge bg-secondary">{{ v.get('usage_count', 0) }}</span></td>
+                                <td><span class="badge bg-info">{{ v.get('recent_usage_count', 0) }}</span></td>
                                 <td>
                                     <span class="status-badge {% if v['is_active'] %}status-active{% elif v['status'] == 'completed' or v['status'] == 'rolled_back' %}status-completed{% else %}status-failed{% endif %}">
                                         {% if v['is_active'] %}激活中{% elif v['status'] == 'completed' %}已完成{% elif v['status'] == 'rolled_back' %}已回滚{% elif v['status'] == 'training' %}训练中{% else %}失败{% endif %}
@@ -319,6 +357,8 @@
 {% block extra_js %}
 <script>
 let currentActivateId = null;
+let lastComparisonData = null;
+let currentWindowDays = {{ usage_window_config.window_days }};
 
 const activateModal = document.getElementById('activateModal');
 activateModal.addEventListener('show.bs.modal', function (event) {
@@ -378,9 +418,32 @@ document.getElementById('confirmActivateBtn').addEventListener('click', async fu
     }
 });
 
+function showError(message, availableVersions) {
+    const errorDiv = document.getElementById('comparisonError');
+    const errorMessageDiv = document.getElementById('errorMessage');
+    const errorSuggestionsDiv = document.getElementById('errorSuggestions');
+    
+    errorMessageDiv.textContent = message;
+    
+    if (availableVersions && availableVersions.length > 0) {
+        let suggestionsHtml = '<div class="mt-2"><strong>建议选择以下可用版本：</strong><ul class="mb-0 mt-1">';
+        availableVersions.forEach(v => {
+            suggestionsHtml += `<li>v${v.version} (ID: ${v.id})</li>`;
+        });
+        suggestionsHtml += '</ul></div>';
+        errorSuggestionsDiv.innerHTML = suggestionsHtml;
+    } else {
+        errorSuggestionsDiv.innerHTML = '';
+    }
+    
+    errorDiv.classList.remove('d-none');
+}
+
 async function compareVersions() {
     const versionA = document.getElementById('compareVersionA').value;
     const versionB = document.getElementById('compareVersionB').value;
+    const operator = document.getElementById('compareOperator').value.trim();
+    const windowDaysInput = document.getElementById('windowDays').value;
     
     if (!versionA || !versionB) {
         alert('请选择两个版本进行对比');
@@ -392,23 +455,36 @@ async function compareVersions() {
         return;
     }
     
+    if (!operator) {
+        alert('请输入操作者姓名');
+        return;
+    }
+    
     const resultDiv = document.getElementById('comparisonResult');
     const errorDiv = document.getElementById('comparisonError');
     const tableBody = document.getElementById('comparisonTableBody');
+    const windowInfo = document.getElementById('windowInfo');
     
     resultDiv.classList.add('d-none');
     errorDiv.classList.add('d-none');
     
     try {
+        const bodyData = {
+            version_a_id: parseInt(versionA),
+            version_b_id: parseInt(versionB),
+            operator: operator
+        };
+        
+        if (windowDaysInput) {
+            bodyData.window_days = parseInt(windowDaysInput);
+        }
+        
         const response = await fetch('/api/model/compare', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                version_a_id: parseInt(versionA),
-                version_b_id: parseInt(versionB)
-            })
+            body: JSON.stringify(bodyData)
         });
         
         const result = await response.json();
@@ -417,6 +493,10 @@ async function compareVersions() {
             const data = result.data;
             const va = data.version_a;
             const vb = data.version_b;
+            const windowDays = data.window_days || currentWindowDays;
+            
+            lastComparisonData = data;
+            windowInfo.textContent = `最近 ${windowDays} 天统计`;
             
             let html = '';
             
@@ -482,10 +562,16 @@ async function compareVersions() {
                     </td>
                 </tr>
                 <tr>
-                    <td class="fw-bold">预测使用量</td>
+                    <td class="fw-bold">历史总使用量</td>
                     <td>${va.usage_count || 0}</td>
                     <td>${vb.usage_count || 0}</td>
                     <td>${(vb.usage_count || 0) - (va.usage_count || 0)}</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">最近${windowDays}天使用量</td>
+                    <td><span class="badge bg-info">${va.recent_usage_count || 0}</span></td>
+                    <td><span class="badge bg-info">${vb.recent_usage_count || 0}</span></td>
+                    <td>${(vb.recent_usage_count || 0) - (va.recent_usage_count || 0)}</td>
                 </tr>
                 <tr>
                     <td class="fw-bold">训练时间</td>
@@ -494,15 +580,29 @@ async function compareVersions() {
                     <td>${data.comparison?.training_time_diff ? (data.comparison.training_time_diff / 3600).toFixed(2) + '小时' : '-'}</td>
                 </tr>
                 <tr>
-                    <td class="fw-bold">状态</td>
+                    <td class="fw-bold">激活状态</td>
                     <td>
-                        <span class="badge ${va.is_active ? 'bg-success' : va.status === 'failed' ? 'bg-danger' : 'bg-secondary'}">
-                            ${va.is_active ? '激活中' : va.status === 'completed' ? '已完成' : va.status === 'rolled_back' ? '已回滚' : va.status}
+                        <span class="badge ${va.is_active ? 'bg-success' : 'bg-secondary'}">
+                            ${va.is_active ? '激活中' : '未激活'}
                         </span>
                     </td>
                     <td>
-                        <span class="badge ${vb.is_active ? 'bg-success' : vb.status === 'failed' ? 'bg-danger' : 'bg-secondary'}">
-                            ${vb.is_active ? '激活中' : vb.status === 'completed' ? '已完成' : vb.status === 'rolled_back' ? '已回滚' : vb.status}
+                        <span class="badge ${vb.is_active ? 'bg-success' : 'bg-secondary'}">
+                            ${vb.is_active ? '激活中' : '未激活'}
+                        </span>
+                    </td>
+                    <td>${va.is_active !== vb.is_active ? '<span class="badge bg-warning">不同</span>' : '<span class="badge bg-success">相同</span>'}</td>
+                </tr>
+                <tr>
+                    <td class="fw-bold">模型状态</td>
+                    <td>
+                        <span class="badge ${va.status === 'completed' || va.status === 'rolled_back' || va.status === 'active' ? 'bg-success' : va.status === 'failed' ? 'bg-danger' : va.status === 'training' ? 'bg-warning' : 'bg-secondary'}">
+                            ${va.status === 'active' ? '激活中' : va.status === 'completed' ? '已完成' : va.status === 'rolled_back' ? '已回滚' : va.status === 'training' ? '训练中' : va.status === 'failed' ? '失败' : va.status}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge ${vb.status === 'completed' || vb.status === 'rolled_back' || vb.status === 'active' ? 'bg-success' : vb.status === 'failed' ? 'bg-danger' : vb.status === 'training' ? 'bg-warning' : 'bg-secondary'}">
+                            ${vb.status === 'active' ? '激活中' : vb.status === 'completed' ? '已完成' : vb.status === 'rolled_back' ? '已回滚' : vb.status === 'training' ? '训练中' : vb.status === 'failed' ? '失败' : vb.status}
                         </span>
                     </td>
                     <td>${va.status !== vb.status ? '<span class="badge bg-warning">不同</span>' : '<span class="badge bg-success">相同</span>'}</td>
@@ -512,12 +612,49 @@ async function compareVersions() {
             tableBody.innerHTML = html;
             resultDiv.classList.remove('d-none');
         } else {
-            errorDiv.textContent = result.message || '对比失败';
-            errorDiv.classList.remove('d-none');
+            showError(result.message || '对比失败', result.data?.available_versions);
         }
     } catch (e) {
-        errorDiv.textContent = '对比请求失败: ' + e.message;
-        errorDiv.classList.remove('d-none');
+        showError('对比请求失败: ' + e.message);
+    }
+}
+
+async function exportComparison(format) {
+    if (!lastComparisonData) {
+        alert('请先进行版本对比');
+        return;
+    }
+    
+    const operator = document.getElementById('compareOperator').value.trim();
+    if (!operator) {
+        alert('请输入操作者姓名');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/model/compare/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                comparison_data: lastComparisonData,
+                format: format,
+                operator: operator
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            if (confirm(`导出成功！文件: ${result.data.filename}\n\n是否下载？`)) {
+                window.open(result.data.download_url, '_blank');
+            }
+        } else {
+            alert('导出失败: ' + (result.message || '未知错误'));
+        }
+    } catch (e) {
+        alert('导出请求失败: ' + e.message);
     }
 }
 </script>

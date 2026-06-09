@@ -1,0 +1,62 @@
+{
+  "exported_at": "2026-06-09T12:44:24.228884",
+  "window_days": 7,
+  "version_a": {
+    "id": 84,
+    "version": "20260609_204422_c4047102",
+    "dataset_name": "sample_training_data",
+    "trained_at": "2026-06-09T12:44:22.701598",
+    "is_active": true,
+    "status": "active",
+    "total_usage": 0,
+    "recent_usage": 0,
+    "metrics": {
+      "accuracy": 0.2,
+      "precision": 0,
+      "recall": 0,
+      "f1": 0
+    }
+  },
+  "version_b": {
+    "id": 85,
+    "version": "20260609_204423_a001baa8",
+    "dataset_name": "sample_training_data",
+    "trained_at": "2026-06-09T12:44:23.873444",
+    "is_active": false,
+    "status": "rolled_back",
+    "total_usage": 0,
+    "recent_usage": 0,
+    "metrics": {
+      "accuracy": 0.2,
+      "precision": 0,
+      "recall": 0,
+      "f1": 0
+    }
+  },
+  "metrics_diff": {
+    "accuracy": {
+      "version_a": 0.2,
+      "version_b": 0.2,
+      "difference": 0.0,
+      "difference_percent": "+0.00%"
+    },
+    "precision": {
+      "version_a": 0,
+      "version_b": 0,
+      "difference": 0,
+      "difference_percent": "N/A"
+    },
+    "recall": {
+      "version_a": 0,
+      "version_b": 0,
+      "difference": 0,
+      "difference_percent": "N/A"
+    },
+    "f1": {
+      "version_a": 0,
+      "version_b": 0,
+      "difference": 0,
+      "difference_percent": "N/A"
+    }
+  }
+}

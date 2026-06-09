@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+
+{% block title %}首页 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">控制台概览</h1>
+    <p class="page-subtitle">欢迎使用工单智能分派系统，实时监控系统运行状态</p>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1">激活模型</p>
+                        {% if stats.active_model %}
+                            <h3 class="mb-1">{{ stats.active_model['version'] }}</h3>
+                            <span class="status-badge status-active">
+                                <i class="bi bi-check-circle me-1"></i>运行中
+                            </span>
+                        {% else %}
+                            <h3 class="mb-1 text-muted">无</h3>
+                            <span class="status-badge status-pending">
+                                <i class="bi bi-exclamation-triangle me-1"></i>未激活
+                            </span>
+                        {% endif %}
+                    </div>
+                    <div class="stat-card-icon text-primary">
+                        <i class="bi bi-cpu"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1">数据集数量</p>
+                        <h3 class="mb-1">{{ stats.dataset_count|default(0) }}</h3>
+                        <small class="text-muted">已导入数据集</small>
+                    </div>
+                    <div class="stat-card-icon text-success">
+                        <i class="bi bi-database"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1">模型版本</p>
+                        <h3 class="mb-1">{{ stats.model_version_count|default(0) }}</h3>
+                        <small class="text-muted">历史训练版本</small>
+                    </div>
+                    <div class="stat-card-icon text-info">
+                        <i class="bi bi-layers"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted mb-1">总预测数</p>
+                        <h3 class="mb-1">{{ stats.total_predictions|default(0) }}</h3>
+                        <small class="text-muted">累计处理工单</small>
+                    </div>
+                    <div class="stat-card-icon text-warning">
+                        <i class="bi bi-ticket-perforated"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-12">
+        <h5 class="mb-3">快速操作</h5>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <a href="{{ url_for('import_page') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="bi bi-file-earmark-arrow-up"></i>
+                    <span>导入数据</span>
+                    <small class="text-muted mt-1">上传CSV训练数据</small>
+                </a>
+            </div>
+            <div class="col-md-4">
+                <a href="{{ url_for('train_page') }}" class="btn btn-outline-success quick-action-btn">
+                    <i class="bi bi-gear-wide-connected"></i>
+                    <span>训练模型</span>
+                    <small class="text-muted mt-1">开始新的训练任务</small>
+                </a>
+            </div>
+            <div class="col-md-4">
+                <a href="{{ url_for('predict_page') }}" class="btn btn-outline-info quick-action-btn">
+                    <i class="bi bi-cpu"></i>
+                    <span>开始预测</span>
+                    <small class="text-muted mt-1">智能分派工单</small>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-layers me-2"></i>最近模型版本</span>
+                <a href="{{ url_for('train_page') }}" class="btn btn-sm btn-outline-primary">查看全部</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_models %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>版本</th>
+                                <th>数据集</th>
+                                <th>准确率</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for model in recent_models %}
+                            <tr>
+                                <td><code>v{{ model['version'] }}</code></td>
+                                <td>{{ model['dataset_name']|truncate(15) }}</td>
+                                <td>
+                                    {% if model['accuracy'] %}
+                                        <span class="fw-bold">{{ "%.1f"|format(model['accuracy'] * 100) }}%</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model.is_active %}
+                                        <span class="status-badge status-active">激活</span>
+                                    {% elif model['status'] == 'completed' %}
+                                        <span class="status-badge status-completed">已完成</span>
+                                    {% elif model['status'] == 'training' %}
+                                        <span class="status-badge status-pending">训练中</span>
+                                    {% else %}
+                                        <span class="status-badge status-failed">失败</span>
+                                    {% endif %}
+                                </td>
+                                <td><small class="text-muted">{% if model['created_at'] %}{{ model['created_at'].strftime('%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                    <p class="text-muted">暂无模型版本</p>
+                    <a href="{{ url_for('train_page') }}" class="btn btn-primary">开始训练</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-ticket-perforated me-2"></i>最近工单</span>
+                <a href="{{ url_for('tickets_page') }}" class="btn btn-sm btn-outline-primary">查看全部</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_tickets %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>标题</th>
+                                <th>预测队列</th>
+                                <th>置信度</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ticket in recent_tickets %}
+                            <tr>
+                                <td>#{{ ticket.id }}</td>
+                                <td>{{ ticket['title']|truncate(20) }}</td>
+                                <td>
+                                    {% if ticket.predicted_queue %}
+                                        <span class="queue-badge queue-{{ ticket.predicted_queue.split('_')[0] }}">
+                                            {{ ticket.predicted_queue }}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if ticket.confidence %}
+                                        {% set conf = ticket.confidence * 100 %}
+                                        <span class="{% if conf >= 80 %}confidence-high{% elif conf >= 50 %}confidence-medium{% else %}confidence-low{% endif %} fw-bold">
+                                            {{ "%.1f"|format(conf) }}%
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if ticket.actual_queue %}
+                                        <span class="status-badge status-active">已改判</span>
+                                    {% else %}
+                                        <span class="status-badge status-pending">待处理</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                    <p class="text-muted">暂无工单记录</p>
+                    <a href="{{ url_for('predict_page') }}" class="btn btn-primary">开始预测</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

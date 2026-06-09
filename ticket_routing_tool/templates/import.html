@@ -1,0 +1,272 @@
+{% extends 'base.html' %}
+
+{% block title %}数据导入 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">数据导入</h1>
+    <p class="page-subtitle">上传CSV格式的训练数据集，用于模型训练</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-file-earmark-arrow-up me-2"></i>上传CSV文件
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('api_import') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <div class="mb-3">
+                        <label for="datasetName" class="form-label">数据集名称</label>
+                        <input type="text" class="form-control" id="datasetName" name="dataset_name" placeholder="例如：训练数据_202606" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="csvFile" class="form-label">选择CSV文件</label>
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" class="d-none" id="csvFile" name="csv_file" accept=".csv" required>
+                            <i class="bi bi-cloud-upload display-4 text-muted mb-3"></i>
+                            <p class="mb-1">点击或拖拽CSV文件到此处</p>
+                            <p class="text-muted small mb-0">支持 .csv 格式，最大 50MB</p>
+                        </div>
+                        <div id="fileInfo" class="mt-3 d-none">
+                            <div class="alert alert-info">
+                                <i class="bi bi-file-earmark-text me-2"></i>
+                                <span id="fileName"></span>
+                                <button type="button" class="btn-close float-end" id="clearFile"></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>
+                            <i class="bi bi-upload me-2"></i>开始导入
+                        </button>
+                    </div>
+                </form>
+
+                <div id="previewArea" class="mt-4 d-none">
+                    <h6 class="mb-3"><i class="bi bi-eye me-2"></i>数据预览</h6>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered" id="previewTable">
+                            <thead id="previewHead"></thead>
+                            <tbody id="previewBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-2"></i>CSV格式说明
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">CSV文件必须包含以下列名，列顺序可以任意：</p>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>列名</th>
+                                <th>类型</th>
+                                <th>必填</th>
+                                <th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>title</code></td>
+                                <td>字符串</td>
+                                <td><span class="text-danger">是</span></td>
+                                <td>工单标题</td>
+                            </tr>
+                            <tr>
+                                <td><code>content</code></td>
+                                <td>字符串</td>
+                                <td><span class="text-danger">是</span></td>
+                                <td>工单详细内容</td>
+                            </tr>
+                            <tr>
+                                <td><code>channel</code></td>
+                                <td>字符串</td>
+                                <td>否</td>
+                                <td>工单来源渠道（email, phone, web, app, wechat, weibo）</td>
+                            </tr>
+                            <tr>
+                                <td><code>tags</code></td>
+                                <td>字符串</td>
+                                <td>否</td>
+                                <td>标签，多个标签用逗号分隔</td>
+                            </tr>
+                            <tr>
+                                <td><code>queue</code></td>
+                                <td>字符串</td>
+                                <td><span class="text-danger">是</span></td>
+                                <td>实际分派队列（训练数据必需）</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="alert alert-warning mt-3 mb-0">
+                    <small>
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>提示：</strong>训练数据需要包含 <code>queue</code> 列作为标签，预测数据不需要此列。
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-check-circle me-2"></i>示例数据
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">CSV文件内容示例：</p>
+                <pre class="bg-light p-3 rounded small overflow-auto">title,content,channel,tags,queue
+无法登录系统,用户反馈登录时提示密码错误，已重置密码仍无法登录,web,登录,密码,技术支持
+账单查询,需要查询最近3个月的消费明细,email,账单,查询,账单咨询
+账户注销,希望注销账户并删除个人信息,phone,账户,注销,账户问题
+新功能建议,希望增加批量导出功能,app,功能,建议,产品建议
+服务投诉,客服态度恶劣，要求投诉处理,wechat,投诉,客服,投诉建议</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-database me-2"></i>已导入数据集</span>
+        <span class="badge bg-primary">{{ datasets|length }} 个数据集</span>
+    </div>
+    <div class="card-body p-0">
+        {% if datasets %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>数据集名称</th>
+                        <th>文件名</th>
+                        <th>数据量</th>
+                        <th>状态</th>
+                        <th>导入时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dataset in datasets %}
+                    <tr>
+                        <td>#{{ dataset.id }}</td>
+                        <td>{{ dataset['name'] }}</td>
+                        <td><small>{{ dataset.filename }}</small></td>
+                        <td><span class="badge bg-info">{{ dataset.row_count }} 条</span></td>
+                        <td>
+                            {% if dataset.status == 'completed' %}
+                                <span class="status-badge status-completed">已完成</span>
+                            {% elif dataset.status == 'processing' %}
+                                <span class="status-badge status-pending">处理中</span>
+                            {% else %}
+                                <span class="status-badge status-failed">失败</span>
+                            {% endif %}
+                        </td>
+                        <td><small class="text-muted">{% if dataset['created_at'] %}{{ dataset['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" title="查看详情">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" title="删除">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+            <p class="text-muted">暂无已导入的数据集</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const uploadArea = document.getElementById('uploadArea');
+const csvFile = document.getElementById('csvFile');
+const fileInfo = document.getElementById('fileInfo');
+const fileName = document.getElementById('fileName');
+const clearFile = document.getElementById('clearFile');
+const uploadBtn = document.getElementById('uploadBtn');
+const previewArea = document.getElementById('previewArea');
+const previewHead = document.getElementById('previewHead');
+const previewBody = document.getElementById('previewBody');
+
+uploadArea.addEventListener('click', () => csvFile.click());
+
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+        csvFile.files = e.dataTransfer.files;
+        handleFileSelect();
+    }
+});
+
+csvFile.addEventListener('change', handleFileSelect);
+
+function handleFileSelect() {
+    if (csvFile.files.length) {
+        const file = csvFile.files[0];
+        fileName.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+        fileInfo.classList.remove('d-none');
+        uploadBtn.disabled = false;
+        previewCSV(file);
+    }
+}
+
+clearFile.addEventListener('click', () => {
+    csvFile.value = '';
+    fileInfo.classList.add('d-none');
+    uploadBtn.disabled = true;
+    previewArea.classList.add('d-none');
+});
+
+function previewCSV(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split('\n').filter(line => line.trim());
+        if (lines.length === 0) return;
+
+        const headers = lines[0].split(',').map(h => h.trim());
+        const headHtml = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+        previewHead.innerHTML = headHtml;
+
+        const rows = lines.slice(1, 11);
+        const bodyHtml = rows.map(row => {
+            const cells = row.split(',').map(c => c.trim());
+            return '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
+        }).join('');
+        previewBody.innerHTML = bodyHtml;
+
+        previewArea.classList.remove('d-none');
+    };
+    reader.readAsText(file);
+}
+</script>
+{% endblock %}

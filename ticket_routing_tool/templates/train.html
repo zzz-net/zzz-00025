@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+
+{% block title %}模型训练 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">模型训练</h1>
+    <p class="page-subtitle">选择数据集并配置训练参数，训练新的分类模型</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-gear-wide-connected me-2"></i>训练配置
+            </div>
+            <div class="card-body">
+                <form action="" method="POST" id="trainForm">
+                    <div class="mb-3">
+                        <label for="datasetSelect" class="form-label">选择数据集</label>
+                        <select class="form-select" id="datasetSelect" name="dataset_id" required>
+                            <option value="">请选择训练数据集...</option>
+                            {% for dataset in datasets %}
+                                {% if dataset.status == 'completed' %}
+                                <option value="{{ dataset.id }}">
+                                    {{ dataset['name'] }} ({{ dataset['row_count'] }} 条数据)
+                                </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        {% if not datasets or datasets|selectattr('status', 'equalto', 'completed')|list|length == 0 %}
+                        <div class="form-text text-danger">
+                            <i class="bi bi-exclamation-triangle me-1"></i>暂无可用数据集，请先<a href="{{ url_for('import_page') }}">导入数据</a>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">训练参数说明</label>
+                        <div class="card bg-light">
+                            <div class="card-body py-3 px-3">
+                                <ul class="list-unstyled small mb-0">
+                                    <li class="mb-2">
+                                        <i class="bi bi-info-circle text-info me-2"></i>
+                                        <strong>算法：</strong>TF-IDF + Logistic Regression
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="bi bi-info-circle text-info me-2"></i>
+                                        <strong>验证集比例：</strong>20%
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="bi bi-info-circle text-info me-2"></i>
+                                        <strong>特征维度：</strong>5000
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="bi bi-info-circle text-info me-2"></i>
+                                        <strong>N-gram范围：</strong>(1, 2)
+                                    </li>
+                                    <li>
+                                        <i class="bi bi-info-circle text-info me-2"></i>
+                                        <strong>交叉验证：</strong>5折
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="autoActivate" name="auto_activate" checked>
+                        <label class="form-check-label" for="autoActivate">训练完成后自动激活为当前模型</label>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-success" id="trainBtn" 
+                            {% if not datasets or datasets|selectattr('status', 'equalto', 'completed')|list|length == 0 %}disabled{% endif %}>
+                            <i class="bi bi-play-circle me-2"></i>开始训练
+                        </button>
+                    </div>
+                </form>
+
+                <div id="trainingProgress" class="mt-4 d-none">
+                    <h6 class="mb-3"><i class="bi bi-hourglass-split me-2"></i>训练进度</h6>
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span id="progressText">正在准备数据...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                            <div class="progress mb-3">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     id="progressBar" style="width: 0%"></div>
+                            </div>
+                            <div class="small text-muted" id="progressDetails">
+                                <i class="bi bi-clock me-1"></i>预计剩余时间：计算中...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-layers me-2"></i>模型版本历史</span>
+                <span class="badge bg-primary">{{ models|length }} 个版本</span>
+            </div>
+            <div class="card-body p-0">
+                {% if models %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>版本</th>
+                                <th>数据集</th>
+                                <th>准确率</th>
+                                <th>F1值</th>
+                                <th>训练时长</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for model in models %}
+                            <tr>
+                                <td>
+                                    {% if model.is_active %}
+                                        <i class="bi bi-star-fill text-warning me-1"></i>
+                                    {% endif %}
+                                    <code>v{{ model['version'] }}</code>
+                                </td>
+                                <td>{{ model['dataset_name']|truncate(12) }}</td>
+                                <td>
+                                    {% if model['accuracy'] %}
+                                        <span class="fw-bold">{{ "%.1f"|format(model['accuracy'] * 100) }}%</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model['metrics'] and model['metrics'].f1 %}
+                                        <span class="fw-bold">{{ "%.3f"|format(model['metrics'].f1) }}</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model.training_time %}
+                                        <small>{{ model.training_time }}s</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model.is_active %}
+                                        <span class="status-badge status-active">激活中</span>
+                                    {% elif model['status'] == 'completed' %}
+                                        <span class="status-badge status-completed">已完成</span>
+                                    {% elif model['status'] == 'training' %}
+                                        <span class="status-badge status-pending">训练中</span>
+                                    {% else %}
+                                        <span class="status-badge status-failed">失败</span>
+                                    {% endif %}
+                                </td>
+                                <td><small class="text-muted">{% if model['created_at'] %}{{ model['created_at'].strftime('%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-primary" title="查看详情">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        {% if not model.is_active and model['status'] == 'completed' %}
+                                        <button class="btn btn-outline-success" title="激活此版本">
+                                            <i class="bi bi-check-circle"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                    <p class="text-muted">暂无训练记录</p>
+                    {% if datasets and datasets|selectattr('status', 'equalto', 'completed')|list|length > 0 %}
+                    <button type="button" class="btn btn-primary" onclick="document.getElementById('trainBtn').click()">
+                        开始训练第一个模型
+                    </button>
+                    {% else %}
+                    <a href="{{ url_for('import_page') }}" class="btn btn-primary">先导入数据</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if current_training %}
+        <div class="alert alert-info mt-4">
+            <i class="bi bi-info-circle me-2"></i>
+            <strong>当前训练任务：</strong>
+            模型版本 v{{ current_training.version }} 正在训练中，使用数据集 {{ current_training.dataset_name }}
+            <div class="progress mt-2">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 60%"></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const trainForm = document.getElementById('trainForm');
+const trainBtn = document.getElementById('trainBtn');
+const datasetSelect = document.getElementById('datasetSelect');
+const trainingProgress = document.getElementById('trainingProgress');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+const progressPercent = document.getElementById('progressPercent');
+const progressDetails = document.getElementById('progressDetails');
+
+datasetSelect.addEventListener('change', function() {
+    const datasetId = this.value;
+    if (datasetId) {
+        trainForm.action = "{{ url_for('api_train', dataset_id=0) }}".replace('/0', '/' + datasetId);
+    } else {
+        trainForm.action = '';
+    }
+});
+
+trainForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const datasetId = datasetSelect.value;
+    if (!datasetId) {
+        alert('请先选择训练数据集');
+        return;
+    }
+    
+    trainBtn.disabled = true;
+    trainBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>训练中...';
+    trainingProgress.classList.remove('d-none');
+    
+    const steps = [
+        { text: '正在准备数据...', progress: 10, detail: '加载并预处理训练数据' },
+        { text: '正在提取特征...', progress: 30, detail: 'TF-IDF 特征向量化' },
+        { text: '正在训练模型...', progress: 60, detail: 'Logistic Regression 模型训练' },
+        { text: '正在评估模型...', progress: 85, detail: '交叉验证与指标计算' },
+        { text: '训练完成！', progress: 100, detail: '模型已保存，可以激活使用' }
+    ];
+    
+    let currentStep = 0;
+    
+    function updateProgress() {
+        if (currentStep < steps.length) {
+            const step = steps[currentStep];
+            progressBar.style.width = step.progress + '%';
+            progressPercent.textContent = step.progress + '%';
+            progressText.textContent = step.text;
+            progressDetails.innerHTML = `<i class="bi bi-clock me-1"></i>${step.detail}`;
+            
+            if (step.progress === 100) {
+                progressBar.classList.remove('progress-bar-animated');
+                progressBar.classList.add('bg-success');
+                trainBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>训练完成';
+                setTimeout(() => {
+                    location.reload();
+                }, 1500);
+            } else {
+                currentStep++;
+                setTimeout(updateProgress, 2000);
+            }
+        }
+    }
+    
+    setTimeout(updateProgress, 500);
+});
+</script>
+{% endblock %}

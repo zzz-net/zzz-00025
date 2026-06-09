@@ -1,0 +1,237 @@
+{% extends 'base.html' %}
+
+{% block title %}模型回滚 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">模型回滚</h1>
+    <p class="page-subtitle">管理模型版本，必要时回滚到历史版本</p>
+</div>
+
+<div class="alert alert-info mb-4">
+    <i class="bi bi-info-circle me-2"></i>
+    <strong>提示：</strong>回滚操作将切换当前激活的模型版本，所有新的预测将使用回滚后的模型。请谨慎操作。
+</div>
+
+<div class="row g-4">
+    <div class="col-md-5">
+        <div class="card border-success mb-4">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-star-fill me-2"></i>当前激活版本
+            </div>
+            <div class="card-body">
+                {% if active_model %}
+                <div class="text-center mb-4">
+                    <div class="display-4 mb-2">v{{ active_model['version'] }}</div>
+                    <p class="text-muted mb-3">{{ active_model['dataset_name'] }}</p>
+                    <div class="row g-2 mb-4">
+                        <div class="col-6">
+                            <div class="card bg-light">
+                                <div class="card-body py-2">
+                                    <div class="fw-bold fs-4">{{ "%.1f"|format((active_model['accuracy'] or 0) * 100) }}%</div>
+                                    <div class="small text-muted">准确率</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card bg-light">
+                                <div class="card-body py-2">
+                                    <div class="fw-bold fs-4">
+                                        {% if active_model['metrics'] and active_model['metrics'].f1 %}
+                                            {{ "%.3f"|format(active_model['metrics'].f1) }}
+                                        {% else %}-{% endif %}
+                                    </div>
+                                    <div class="small text-muted">F1值</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="small text-muted">
+                        <i class="bi bi-calendar3 me-1"></i>
+                        激活时间：{% if active_model['created_at'] %}{{ active_model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-exclamation-triangle text-warning display-4 mb-3"></i>
+                    <p class="text-muted mb-0">暂无激活的模型版本</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-clock-history me-2"></i>版本历史时间线
+            </div>
+            <div class="card-body">
+                {% if models %}
+                <div class="timeline">
+                    {% for model in models[:10] %}
+                    <div class="timeline-item {% if model.is_active %}active{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">
+                                {% if model.is_active %}
+                                    <i class="bi bi-star-fill text-warning me-1"></i>
+                                {% endif %}
+                                版本 v{{ model['version'] }}
+                                </h6>
+                                <small class="text-muted">{{ model['dataset_name'] }}</small>
+                            </div>
+                            <span class="status-badge {% if model.is_active %}status-active{% elif model['status'] == 'completed' %}status-completed{% else %}status-failed{% endif %}">
+                                {% if model.is_active %}激活中{% elif model['status'] == 'completed' %}已完成{% else %}失败{% endif %}
+                            </span>
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <i class="bi bi-calendar3 me-1"></i>
+                                {% if model['created_at'] %}{{ model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
+                            </small>
+                            {% if model['accuracy'] %}
+                            <small class="text-muted ms-3">
+                                <i class="bi bi-bar-chart me-1"></i>
+                                准确率 {{ "%.1f"|format(model['accuracy'] * 100) }}%
+                            </small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-3">
+                    <p class="text-muted mb-0">暂无历史版本</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-arrow-counterclockwise me-2"></i>可回滚版本</span>
+                <span class="badge bg-secondary">{{ rollback_models|length }} 个版本</span>
+            </div>
+            <div class="card-body p-0">
+                {% if rollback_models %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>版本</th>
+                                <th>数据集</th>
+                                <th>准确率</th>
+                                <th>F1值</th>
+                                <th>训练时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for model in rollback_models %}
+                            <tr>
+                                <td>
+                                    <code>v{{ model['version'] }}</code>
+                                    {% if model.is_active %}
+                                    <span class="badge bg-success ms-1">当前</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ model['dataset_name'] }}</td>
+                                <td>
+                                    {% if model['accuracy'] %}
+                                        <span class="fw-bold">{{ "%.1f"|format(model['accuracy'] * 100) }}%</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model['metrics'] and model['metrics'].f1 %}
+                                        {{ "%.3f"|format(model['metrics'].f1) }}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td><small class="text-muted">{% if model['created_at'] %}{{ model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                                <td>
+                                    {% if not model.is_active %}
+                                    <button class="btn btn-sm btn-outline-warning" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#rollbackModal"
+                                            data-version="{{ model['version'] }}"
+                                            data-id="{{ model.id }}">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i>回滚
+                                    </button>
+                                    {% else %}
+                                    <span class="text-muted small">当前版本</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+                    <p class="text-muted">暂无可用的回滚版本</p>
+                    <a href="{{ url_for('train_page') }}" class="btn btn-primary">
+                        <i class="bi bi-gear-wide-connected me-2"></i>训练模型
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="rollbackModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle me-2"></i>确认回滚
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">您确定要将模型回滚到以下版本吗？</p>
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <h5 class="mb-1">版本 <span id="rollbackVersion" class="text-primary">v1.0</span></h5>
+                        <p class="text-muted mb-0">此操作将使该版本成为当前激活模型，所有新预测将使用此版本。</p>
+                    </div>
+                </div>
+                <div class="alert alert-warning mt-3 mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>注意：</strong>回滚后，之前的激活版本不会被删除，您可以随时再次切换。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <form action="" method="POST" id="rollbackForm">
+                    <input type="hidden" name="model_id" id="rollbackModelId" value="">
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>确认回滚
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const rollbackModal = document.getElementById('rollbackModal');
+const rollbackForm = document.getElementById('rollbackForm');
+rollbackModal.addEventListener('show.bs.modal', function (event) {
+    const button = event.relatedTarget;
+    const version = button.getAttribute('data-version');
+    const modelId = button.getAttribute('data-id');
+    
+    document.getElementById('rollbackVersion').textContent = 'v' + version;
+    document.getElementById('rollbackModelId').value = modelId;
+    rollbackForm.action = "{{ url_for('api_rollback', model_version_id=0) }}".replace('/0', '/' + modelId);
+});
+</script>
+{% endblock %}

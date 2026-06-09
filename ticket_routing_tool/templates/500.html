@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block title %}500 - 服务器错误{% endblock %}
+
+{% block content %}
+<div class="text-center py-5">
+    <div class="error-page">
+        <h1 class="display-1 text-muted">500</h1>
+        <h2 class="mb-4">服务器内部错误</h2>
+        <p class="text-muted mb-4">抱歉，服务器发生了错误，请稍后重试或联系管理员。</p>
+        <div class="d-flex justify-content-center gap-3">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">
+                <i class="bi bi-house-door me-2"></i>返回首页
+            </a>
+            <button class="btn btn-outline-secondary" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise me-2"></i>刷新页面
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

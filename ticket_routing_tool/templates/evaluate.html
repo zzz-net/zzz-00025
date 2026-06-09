@@ -1,0 +1,276 @@
+{% extends 'base.html' %}
+
+{% block title %}模型评估 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">模型评估</h1>
+    <p class="page-subtitle">查看当前激活模型的评估指标和详细分类报告</p>
+</div>
+
+{% if active_model %}
+<div class="alert alert-success mb-4">
+    <i class="bi bi-check-circle me-2"></i>
+    <strong>当前激活模型：</strong>版本 v{{ active_model['version'] }}，训练于 {% if active_model['created_at'] %}{{ active_model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
+</div>
+
+<div class="row g-4 mb-4">
+    {% set metrics = active_model.metrics or {} %}
+    {% for metric_key, metric_value in [('accuracy', metrics.get('accuracy')), ('precision', metrics.get('precision')), ('recall', metrics.get('recall')), ('f1', metrics.get('f1'))] %}
+    <div class="col-md-3">
+        <div class="card metric-card h-100">
+            <div class="card-body">
+                <div class="metric-value">
+                    {% if metric_value %}
+                        {{ "%.1f"|format(metric_value * 100) }}%
+                    {% else %}
+                        -
+                    {% endif %}
+                </div>
+                <div class="metric-label">
+                    {% if metric_key == 'accuracy' %}准确率{% elif metric_key == 'precision' %}精确率{% elif metric_key == 'recall' %}召回率{% else %}F1值{% endif %}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-bs-toggle="tooltip" 
+                        title="{{ metric_explanations.get(metric_key, '') }}">
+                    <i class="bi bi-question-circle"></i> 指标说明
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-info-circle me-2"></i>评估指标说明
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            {% for key, explanation in metric_explanations.items() %}
+            <div class="col-md-6">
+                <div class="d-flex align-items-start">
+                    <div class="badge bg-primary me-3 mt-1">{{ key }}</div>
+                    <div>
+                        <p class="mb-0 small text-muted">{{ explanation }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-bar-chart-line me-2"></i>各类别详细指标</span>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary active">全部</button>
+                    <button class="btn btn-outline-primary">精确率</button>
+                    <button class="btn btn-outline-primary">召回率</button>
+                    <button class="btn btn-outline-primary">F1值</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if class_metrics %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>类别</th>
+                                <th>精确率</th>
+                                <th>召回率</th>
+                                <th>F1值</th>
+                                <th>支持数</th>
+                                <th>占比</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for class_name, metrics in class_metrics.items() %}
+                            <tr>
+                                <td>
+                                    <span class="queue-badge queue-{{ class_name.split('_')[0] }}">{{ class_name }}</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <span class="fw-bold me-2">{{ "%.1f"|format(metrics.precision * 100) }}%</span>
+                                        <div class="progress flex-grow-1" style="height: 6px;">
+                                            <div class="progress-bar bg-info" style="width: {{ metrics.precision * 100 }}%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <span class="fw-bold me-2">{{ "%.1f"|format(metrics.recall * 100) }}%</span>
+                                        <div class="progress flex-grow-1" style="height: 6px;">
+                                            <div class="progress-bar bg-success" style="width: {{ metrics.recall * 100 }}%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <span class="fw-bold me-2">{{ "%.1f"|format(metrics.f1 * 100) }}%</span>
+                                        <div class="progress flex-grow-1" style="height: 6px;">
+                                            <div class="progress-bar bg-warning" style="width: {{ metrics.f1 * 100 }}%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><span class="badge bg-secondary">{{ metrics.support }}</span></td>
+                                <td>
+                                    {% set total = class_metrics.values()|sum(attribute='support') %}
+                                    {{ "%.1f"|format(metrics.support / total * 100) }}%
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td><strong>加权平均</strong></td>
+                                <td><strong>{{ "%.1f"|format(metrics.get('precision', 0) * 100) }}%</strong></td>
+                                <td><strong>{{ "%.1f"|format(metrics.get('recall', 0) * 100) }}%</strong></td>
+                                <td><strong>{{ "%.1f"|format(metrics.get('f1', 0) * 100) }}%</strong></td>
+                                <td><strong>{{ class_metrics.values()|sum(attribute='support') }}</strong></td>
+                                <td><strong>100%</strong></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-bar-chart display-4 text-muted mb-3"></i>
+                    <p class="text-muted">暂无详细分类指标</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-layers me-2"></i>模型版本对比
+            </div>
+            <div class="card-body p-0">
+                {% if compare_models %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>版本</th>
+                                <th>准确率</th>
+                                <th>F1值</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for model in compare_models %}
+                            <tr {% if model.is_active %}class="table-success"{% endif %}>
+                                <td>
+                                    {% if model.is_active %}
+                                        <i class="bi bi-star-fill text-warning me-1"></i>
+                                    {% endif %}
+                                    <code>v{{ model['version'] }}</code>
+                                </td>
+                                <td>
+                                    {% if model.accuracy %}
+                                        <span class="fw-bold">{{ "%.1f"|format(model.accuracy * 100) }}%</span>
+                                        {% if model.accuracy > active_model.accuracy %}
+                                            <i class="bi bi-arrow-up text-success ms-1"></i>
+                                        {% elif model.accuracy < active_model.accuracy %}
+                                            <i class="bi bi-arrow-down text-danger ms-1"></i>
+                                        {% endif %}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if model.metrics and model.metrics.f1 %}
+                                        {{ "%.3f"|format(model.metrics.f1) }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if not model.is_active and model.status == 'completed' %}
+                                    <button class="btn btn-sm btn-outline-success" title="激活此版本">
+                                        <i class="bi bi-check-circle"></i>
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <p class="text-muted mb-0">暂无其他版本可对比</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-gear me-2"></i>模型信息
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">模型版本</span>
+                        <strong>v{{ active_model['version'] }}</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">训练数据集</span>
+                        <strong>{{ active_model['dataset_name'] }}</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">训练时间</span>
+                        <strong>{% if active_model['created_at'] %}{{ active_model['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">训练时长</span>
+                        <strong>{{ active_model.training_time or '-' }} 秒</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">样本总数</span>
+                        <strong>{{ active_model.sample_count or '-' }}</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0 py-2">
+                        <span class="text-muted">类别数量</span>
+                        <strong>{{ active_model.class_count or '5' }}</strong>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-exclamation-triangle display-4 text-warning mb-3"></i>
+        <h4 class="mb-3">暂无激活模型</h4>
+        <p class="text-muted mb-4">请先训练并激活一个模型，然后再查看评估结果</p>
+        <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+            <a href="{{ url_for('import_page') }}" class="btn btn-outline-primary">
+                <i class="bi bi-file-earmark-arrow-up me-2"></i>导入数据
+            </a>
+            <a href="{{ url_for('train_page') }}" class="btn btn-primary">
+                <i class="bi bi-gear-wide-connected me-2"></i>训练模型
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+    return new bootstrap.Tooltip(tooltipTriggerEl);
+});
+</script>
+{% endblock %}

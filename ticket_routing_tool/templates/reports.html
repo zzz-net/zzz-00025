@@ -1,0 +1,238 @@
+{% extends 'base.html' %}
+
+{% block title %}报告中心 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">报告中心</h1>
+    <p class="page-subtitle">导出和查看各类分析报告，辅助决策</p>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-clipboard-check me-2"></i>复核报告导出
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    导出指定日期范围内的工单复核报告，包含预测结果、实际队列、改判记录等信息。
+                </p>
+                <form action="{{ url_for('api_report_audit') }}" method="POST">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="startDate" class="form-label">开始日期</label>
+                            <input type="date" class="form-control" id="startDate" name="start_date" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="endDate" class="form-label">结束日期</label>
+                            <input type="date" class="form-control" id="endDate" name="end_date" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="reportFormat" class="form-label">报告格式</label>
+                        <select class="form-select" id="reportFormat" name="format">
+                            <option value="xlsx">Excel (.xlsx)</option>
+                            <option value="csv">CSV (.csv)</option>
+                            <option value="pdf">PDF (.pdf)</option>
+                        </select>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-download me-2"></i>导出复核报告
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-bar-chart me-2"></i>模型对比报告
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    生成多模型版本对比报告，对比准确率、精确率、召回率、F1值等关键指标。
+                </p>
+                <div class="mb-3">
+                    <label class="form-label">选择对比模型</label>
+                    <div class="card bg-light p-3" style="max-height: 180px; overflow-y: auto;">
+                        {% if models %}
+                            {% for model in models %}
+                            {% if model['status'] == 'completed' %}
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="model_ids" 
+                                       value="{{ model.id }}" id="model{{ model.id }}"
+                                       {% if model.is_active %}checked{% endif %}>
+                                <label class="form-check-label" for="model{{ model.id }}">
+                                    {% if model.is_active %}<i class="bi bi-star-fill text-warning me-1"></i>{% endif %}
+                                    v{{ model['version'] }} - {{ model['dataset_name'] }}
+                                    {% if model['accuracy'] %}
+                                        <span class="text-muted">({{ "%.1f"|format(model['accuracy'] * 100) }}%)</span>
+                                    {% endif %}
+                                </label>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        {% else %}
+                        <p class="text-muted text-center mb-0">暂无可用模型</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="d-grid">
+                    <button type="button" class="btn btn-success" onclick="generateComparisonReport()">
+                        <i class="bi bi-graph-up me-2"></i>生成对比报告
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card bg-light h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-file-earmark-excel display-4 text-success mb-3"></i>
+                <h5>复核报告</h5>
+                <p class="text-muted small">包含所有工单的预测结果、改判记录、人工修正等详细信息</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-light h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-bar-chart display-4 text-primary mb-3"></i>
+                <h5>模型对比</h5>
+                <p class="text-muted small">多模型版本指标对比，可视化展示各版本性能差异</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-light h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-pie-chart display-4 text-info mb-3"></i>
+                <h5>队列分布</h5>
+                <p class="text-muted small">各队列工单数量分布、改判率分析、错误类型统计</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-text me-2"></i>已生成报告</span>
+        <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary active">全部</button>
+            <button class="btn btn-outline-secondary">复核报告</button>
+            <button class="btn btn-outline-secondary">对比报告</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if reports %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>报告名称</th>
+                        <th>类型</th>
+                        <th>时间范围</th>
+                        <th>大小</th>
+                        <th>生成时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for report in reports %}
+                    <tr>
+                        <td>
+                            <i class="bi 
+                                {% if report.type == 'review' %}bi-file-earmark-excel text-success
+                                {% elif report.type == 'comparison' %}bi-file-earmark-bar-graph text-primary
+                                {% else %}bi-file-earmark text-secondary{% endif %} 
+                                me-2"></i>
+                            {{ report.name }}
+                        </td>
+                        <td>
+                            {% if report.type == 'review' %}
+                                <span class="badge bg-success">复核报告</span>
+                            {% elif report.type == 'comparison' %}
+                                <span class="badge bg-primary">对比报告</span>
+                            {% else %}
+                                <span class="badge bg-secondary">其他</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if report.start_date and report.end_date %}
+                                {{ report.start_date }} ~ {{ report.end_date }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td><small>{{ report.size or '-' }}</small></td>
+                        <td><small class="text-muted">{% if report['created_at'] %}{{ report['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" title="下载">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" title="预览">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" title="删除">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-file-earmark display-4 text-muted mb-3"></i>
+            <p class="text-muted">暂无已生成的报告</p>
+            <p class="text-muted small mb-4">使用上方表单生成您的第一份报告</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const today = new Date();
+const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+document.getElementById('endDate').value = today.toISOString().split('T')[0];
+document.getElementById('startDate').value = lastMonth.toISOString().split('T')[0];
+
+function generateComparisonReport() {
+    const checkboxes = document.querySelectorAll('input[name="model_ids"]:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (selectedIds.length < 2) {
+        alert('请至少选择2个模型版本进行对比');
+        return;
+    }
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = "{{ url_for('api_report_comparison') }}";
+    
+    selectedIds.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'model_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock %}

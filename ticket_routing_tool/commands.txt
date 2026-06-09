@@ -1,0 +1,199 @@
+# 工单路由系统 - 常用命令参考
+
+========================================
+1. 启动服务
+========================================
+
+# 启动 Flask 开发服务器
+cd ticket_routing_tool
+python app.py
+
+# 或指定端口和主机
+python app.py --host 0.0.0.0 --port 5000
+
+========================================
+2. API 接口示例 (curl)
+========================================
+
+--- 2.1 导入训练数据 ---
+curl -X POST http://localhost:5000/api/import \
+  -F "file=@data/samples/sample_training_data.csv"
+
+--- 2.2 训练模型 ---
+# 注意：dataset_id 需要替换为导入成功后返回的数据集 ID
+curl -X POST http://localhost:5000/api/train/1
+
+--- 2.3 预测单个工单 ---
+curl -X POST http://localhost:5000/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "系统登录失败",
+    "content": "用户反馈登录时提示密码错误，但确认输入正确，多次尝试后账号被锁定",
+    "channel": "email"
+  }'
+
+--- 2.4 批量预测工单 ---
+curl -X POST http://localhost:5000/api/predict/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tickets": [
+      {
+        "title": "登录异常",
+        "content": "账号无法登录，显示错误信息",
+        "channel": "web"
+      },
+      {
+        "title": "费用问题",
+        "content": "账单有问题，需要查询",
+        "channel": "phone"
+      }
+    ]
+  }'
+
+--- 2.5 人工改判 ---
+# 注意：ticket_id 需要替换为实际工单 ID
+curl -X POST http://localhost:5000/api/override/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "corrected_queue": "账单咨询",
+    "operator": "管理员",
+    "reason": "用户实际咨询的是账单问题，预测错误"
+  }'
+
+--- 2.6 回滚模型版本 ---
+# 注意：model_version_id 需要替换为实际模型版本 ID
+curl -X POST http://localhost:5000/api/rollback/1
+
+--- 2.7 导出复核报告 ---
+curl -X POST http://localhost:5000/api/report/audit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start_date": "2026-06-01",
+    "end_date": "2026-06-09",
+    "format": "xlsx"
+  }'
+
+--- 2.8 导出模型对比报告 ---
+curl -X POST http://localhost:5000/api/report/comparison \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "xlsx"
+  }'
+
+========================================
+3. 运行测试脚本
+========================================
+
+# 运行完整流程测试
+cd ticket_routing_tool
+python test_flow.py
+
+========================================
+4. 页面访问路径
+========================================
+
+# 首页 (仪表盘)
+http://localhost:5000/
+
+# 数据导入页面
+http://localhost:5000/import
+
+# 模型训练页面
+http://localhost:5000/train
+
+# 模型评估页面
+http://localhost:5000/evaluate
+
+# 工单预测页面
+http://localhost:5000/predict
+
+# 工单列表页面
+http://localhost:5000/tickets
+
+# 人工改判页面
+http://localhost:5000/override/1
+
+# 版本回滚页面
+http://localhost:5000/rollback
+
+# 报告导出页面
+http://localhost:5000/reports
+
+========================================
+5. 数据目录结构
+========================================
+
+ticket_routing_tool/
+├── data/
+│   ├── datasets/          # 导入的数据集 (自动生成)
+│   ├── models/            # 训练好的模型 (自动生成)
+│   ├── reports/           # 导出的报告 (自动生成)
+│   ├── samples/           # 样本数据
+│   │   ├── sample_training_data.csv   # 训练数据 (50条)
+│   │   ├── sample_bad_data.csv        # 错误标签测试数据
+│   │   └── sample_predict_tickets.csv # 待预测工单 (20条)
+│   └── ticket_routing.db  # SQLite 数据库 (自动生成)
+├── src/                   # 源代码
+├── templates/             # HTML 模板
+├── app.py                 # Flask 应用入口
+├── config.py              # 配置文件
+├── test_flow.py           # 流程测试脚本
+└── commands.txt           # 此文件
+
+========================================
+6. 支持的渠道和标签
+========================================
+
+--- 支持的渠道 ---
+email, phone, web, app, wechat, weibo
+
+--- 支持的标签 (英文) ---
+billing, technical_support, account_management, product_inquiry,
+feature_request, bug_report, complaint, praise, general_question,
+refund_request, cancellation, upgrade, downgrade, security, accessibility
+
+--- 支持的队列 (中文) ---
+技术支持, 账单咨询, 账户问题, 产品建议, 投诉建议
+
+========================================
+7. 常用 Python 操作
+========================================
+
+# 进入项目目录
+cd ticket_routing_tool
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 初始化数据库（会自动创建表）
+python -c "from app import create_app; app = create_app(); print('Database initialized')"
+
+# 查看已导入的数据集
+python -c "
+from app import create_app
+from src.csv_importer import list_datasets
+app = create_app()
+datasets = list_datasets(app)
+for d in datasets:
+    print(f'ID: {d[\"id\"]}, Name: {d[\"name\"]}, Rows: {d[\"row_count\"]}, Status: {d[\"status\"]}')
+"
+
+# 查看模型版本历史
+python -c "
+from app import create_app
+from src.rollback import get_version_history
+app = create_app()
+versions = get_version_history(app)
+for v in versions:
+    print(f'ID: {v[\"id\"]}, Version: {v[\"version\"]}, Status: {v[\"status\"]}, Active: {v[\"is_active\"]}')
+"
+
+# 查看改判统计
+python -c "
+from app import create_app
+from src.human_override import get_override_stats
+app = create_app()
+stats = get_override_stats(app)
+print(f'Total overrides: {stats[\"total_overrides\"]}')
+print(f'Override rate: {stats[\"override_rate_percentage\"]}')
+"

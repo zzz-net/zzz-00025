@@ -1,0 +1,212 @@
+{% extends 'base.html' %}
+
+{% block title %}工单改判 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <h1 class="page-title">工单改判</h1>
+            <p class="page-subtitle">人工复核预测结果，修正工单分派队列</p>
+        </div>
+        <a href="{{ url_for('tickets_page') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-2"></i>返回列表
+        </a>
+    </div>
+</div>
+
+{% if ticket %}
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-ticket-perforated me-2"></i>工单详情 #{{ ticket.id }}
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">工单标题</label>
+                    <p class="bg-light p-3 rounded mb-0">{{ ticket['title'] }}</p>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">工单内容</label>
+                    <p class="bg-light p-3 rounded mb-0" style="white-space: pre-wrap;">{{ ticket.content }}</p>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">来源渠道</label>
+                        <p class="mb-0">
+                            {% if ticket.channel %}
+                                <span class="badge bg-secondary">{{ ticket.channel }}</span>
+                            {% else %}
+                                <span class="text-muted">未指定</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">创建时间</label>
+                        <p class="mb-0 text-muted">{% if ticket['created_at'] %}{{ ticket['created_at'].strftime('%Y-%m-%d %H:%M:%S') }}{% else %}-{% endif %}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <i class="bi bi-lightbulb me-2"></i>AI 预测结果
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">预测队列</label>
+                        <div class="mt-1">
+                            {% if ticket.predicted_queue %}
+                                <span class="queue-badge queue-{{ ticket.predicted_queue.split('_')[0] }} fs-5 px-3 py-1">
+                                    {{ ticket.predicted_queue }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">无预测结果</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">置信度</label>
+                        <div class="mt-1">
+                            {% if ticket.confidence %}
+                                {% set conf = ticket.confidence * 100 %}
+                                <span class="fs-4 fw-bold {% if conf >= 80 %}confidence-high{% elif conf >= 50 %}confidence-medium{% else %}confidence-low{% endif %}">
+                                    {{ "%.1f"|format(conf) }}%
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% if ticket.model_version %}
+                <div class="mt-3 pt-3 border-top">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        基于模型版本 v{{ ticket.model_version }} 预测
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-pencil-square me-2"></i>人工改判
+            </div>
+            <div class="card-body">
+                {% if ticket.actual_queue %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>该工单已被改判</strong>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">当前实际队列</label>
+                    <div class="mt-1">
+                        <span class="queue-badge queue-{{ ticket.actual_queue.split('_')[0] }} fs-5 px-3 py-1">
+                            {{ ticket.actual_queue }}
+                        </span>
+                    </div>
+                </div>
+                {% if ticket.override_operator %}
+                <div class="mb-3">
+                    <label class="form-label fw-bold">改判人</label>
+                    <p class="mb-0">{{ ticket.override_operator }}</p>
+                </div>
+                {% endif %}
+                {% if ticket.override_reason %}
+                <div class="mb-3">
+                    <label class="form-label fw-bold">改判原因</label>
+                    <p class="bg-light p-3 rounded mb-0">{{ ticket.override_reason }}</p>
+                </div>
+                {% endif %}
+                <div class="d-grid gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-warning" onclick="enableEdit()">
+                        <i class="bi bi-pencil me-2"></i>重新改判
+                    </button>
+                </div>
+                {% endif %}
+
+                <form action="{{ url_for('api_override', ticket_id=ticket.id) }}" method="POST" id="overrideForm">
+                    <div class="mb-3">
+                        <label for="operator" class="form-label">操作者 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="operator" name="operator" 
+                               placeholder="请输入您的姓名或工号" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="reason" class="form-label">改判原因 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="reason" name="reason" rows="4" 
+                                  placeholder="请详细说明改判的原因，这将用于模型的持续优化..." required></textarea>
+                        <div class="form-text">
+                            <i class="bi bi-info-circle me-1"></i>
+                            改判记录将用于后续模型的重新训练和优化
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="actualQueue" class="form-label">修正队列 <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-lg" id="actualQueue" name="actual_queue" required>
+                            <option value="">请选择正确的分派队列...</option>
+                            <option value="tech_support_queue">技术支持 (tech_support_queue)</option>
+                            <option value="billing_queue">账单咨询 (billing_queue)</option>
+                            <option value="account_queue">账户问题 (account_queue)</option>
+                            <option value="product_suggestion_queue">产品建议 (product_suggestion_queue)</option>
+                            <option value="complaint_queue">投诉建议 (complaint_queue)</option>
+                        </select>
+                    </div>
+
+                    {% if ticket.predicted_queue %}
+                    <div class="alert alert-warning mt-4">
+                        <div class="d-flex align-items-start">
+                            <i class="bi bi-exclamation-triangle me-2 mt-1"></i>
+                            <div>
+                                <strong>改判提示</strong>
+                                <p class="mb-1 small">原预测结果为 <span class="queue-badge queue-{{ ticket.predicted_queue.split('_')[0] }}">{{ ticket.predicted_queue }}</span>，置信度为 
+                                    {% if ticket.confidence %}
+                                        <strong>{{ "%.1f"|format(ticket.confidence * 100) }}%</strong>
+                                    {% endif %}
+                                </p>
+                                <p class="mb-0 small text-muted">请确保改判后的队列是正确的，这将直接影响后续模型训练的质量</p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-check-circle me-2"></i>确认改判
+                        </button>
+                        <a href="{{ url_for('tickets_page') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle me-2"></i>取消
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-exclamation-triangle display-4 text-warning mb-3"></i>
+        <h4 class="mb-3">工单不存在</h4>
+        <p class="text-muted mb-4">您访问的工单可能已被删除或不存在</p>
+        <a href="{{ url_for('tickets_page') }}" class="btn btn-primary">
+            <i class="bi bi-arrow-left me-2"></i>返回工单列表
+        </a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function enableEdit() {
+    document.getElementById('overrideForm').scrollIntoView({ behavior: 'smooth' });
+}
+</script>
+{% endblock %}

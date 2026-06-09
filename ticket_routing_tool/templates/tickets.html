@@ -1,0 +1,253 @@
+{% extends 'base.html' %}
+
+{% block title %}工单管理 - 工单智能分派系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">工单管理</h1>
+    <p class="page-subtitle">查看和管理所有工单记录，支持人工改判预测结果</p>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" id="searchInput" placeholder="搜索工单标题或内容...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="queueFilter">
+                    <option value="">全部分队</option>
+                    <option value="tech_support_queue">技术支持</option>
+                    <option value="billing_queue">账单咨询</option>
+                    <option value="account_queue">账户问题</option>
+                    <option value="product_suggestion_queue">产品建议</option>
+                    <option value="complaint_queue">投诉建议</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="statusFilter">
+                    <option value="">全部状态</option>
+                    <option value="pending">待处理</option>
+                    <option value="overridden">已改判</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-outline-primary w-100" onclick="applyFilters()">
+                    <i class="bi bi-funnel me-1"></i>筛选
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-ticket-perforated me-2"></i>工单列表</span>
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-primary">{{ tickets|length }} 条记录</span>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" disabled>
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="btn btn-outline-secondary active">1</button>
+                <button class="btn btn-outline-secondary">2</button>
+                <button class="btn btn-outline-secondary">3</button>
+                <button class="btn btn-outline-secondary">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if tickets %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="ticketsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>标题</th>
+                        <th>渠道</th>
+                        <th>预测队列</th>
+                        <th>置信度</th>
+                        <th>实际队列</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ticket in tickets %}
+                    <tr>
+                        <td>#{{ ticket.id }}</td>
+                        <td>
+                            <div class="fw-bold">{{ ticket['title'] }}</div>
+                            <small class="text-muted">{{ ticket.content|truncate(50) }}</small>
+                        </td>
+                        <td>
+                            {% if ticket.channel %}
+                                <span class="badge bg-secondary">{{ ticket.channel }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ticket.predicted_queue %}
+                                <span class="queue-badge queue-{{ ticket.predicted_queue.split('_')[0] }}">
+                                    {{ ticket.predicted_queue }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ticket.confidence %}
+                                {% set conf = ticket.confidence * 100 %}
+                                <span class="{% if conf >= 80 %}confidence-high{% elif conf >= 50 %}confidence-medium{% else %}confidence-low{% endif %} fw-bold">
+                                    {{ "%.1f"|format(conf) }}%
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ticket.actual_queue %}
+                                <span class="queue-badge queue-{{ ticket.actual_queue.split('_')[0] }}">
+                                    {{ ticket.actual_queue }}
+                                </span>
+                            {% else %}
+                                <span class="status-badge status-pending">待确认</span>
+                            {% endif %}
+                        </td>
+                        <td><small class="text-muted">{% if ticket['created_at'] %}{{ ticket['created_at'].strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}</small></td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" title="查看详情" data-bs-toggle="modal" data-bs-target="#ticketModal{{ ticket.id }}">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                {% if not ticket.actual_queue %}
+                                <a href="{{ url_for('override_page', ticket_id=ticket.id) }}" class="btn btn-outline-warning" title="人工改判">
+                                    <i class="bi bi-pencil-square"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <div class="modal fade" id="ticketModal{{ ticket.id }}" tabindex="-1">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">工单详情 #{{ ticket.id }}</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">工单标题</label>
+                                        <p>{{ ticket['title'] }}</p>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">工单内容</label>
+                                        <p class="bg-light p-3 rounded">{{ ticket.content }}</p>
+                                    </div>
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold">来源渠道</label>
+                                            <p>{{ ticket.channel or '-' }}</p>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold">预测队列</label>
+                                            <p>
+                                                {% if ticket.predicted_queue %}
+                                                    <span class="queue-badge queue-{{ ticket.predicted_queue.split('_')[0] }}">
+                                                        {{ ticket.predicted_queue }}
+                                                    </span>
+                                                {% else %}-{% endif %}
+                                            </p>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label fw-bold">置信度</label>
+                                            <p>
+                                                {% if ticket.confidence %}
+                                                    {% set conf = ticket.confidence * 100 %}
+                                                    <span class="{% if conf >= 80 %}confidence-high{% elif conf >= 50 %}confidence-medium{% else %}confidence-low{% endif %} fw-bold">
+                                                        {{ "%.1f"|format(conf) }}%
+                                                    </span>
+                                                {% else %}-{% endif %}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {% if ticket.actual_queue %}
+                                    <div class="alert alert-info">
+                                        <h6 class="alert-heading"><i class="bi bi-info-circle me-2"></i>已改判</h6>
+                                        <p class="mb-1">
+                                            <strong>实际队列：</strong>
+                                            <span class="queue-badge queue-{{ ticket.actual_queue.split('_')[0] }}">
+                                                {{ ticket.actual_queue }}
+                                            </span>
+                                        </p>
+                                        <p class="mb-1"><strong>改判人：</strong>{{ ticket.override_operator or '-' }}</p>
+                                        <p class="mb-0"><strong>改判原因：</strong>{{ ticket.override_reason or '-' }}</p>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                                    {% if not ticket.actual_queue %}
+                                    <a href="{{ url_for('override_page', ticket_id=ticket.id) }}" class="btn btn-warning">
+                                        <i class="bi bi-pencil-square me-2"></i>人工改判
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox display-4 text-muted mb-3"></i>
+            <p class="text-muted">暂无工单记录</p>
+            <a href="{{ url_for('predict_page') }}" class="btn btn-primary">
+                <i class="bi bi-cpu me-2"></i>开始预测
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function applyFilters() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const queueFilter = document.getElementById('queueFilter').value;
+    const statusFilter = document.getElementById('statusFilter').value;
+    const rows = document.querySelectorAll('#ticketsTable tbody tr');
+    
+    rows.forEach(row => {
+        const title = row.cells[1].textContent.toLowerCase();
+        const predictedQueue = row.cells[3].textContent.trim();
+        const actualQueue = row.cells[5].textContent.trim();
+        const hasOverride = actualQueue !== '待确认';
+        
+        let matchSearch = title.includes(search);
+        let matchQueue = !queueFilter || predictedQueue.includes(queueFilter) || actualQueue.includes(queueFilter);
+        let matchStatus = !statusFilter || 
+            (statusFilter === 'pending' && !hasOverride) || 
+            (statusFilter === 'overridden' && hasOverride);
+        
+        row.style.display = matchSearch && matchQueue && matchStatus ? '' : 'none';
+    });
+}
+
+document.getElementById('searchInput').addEventListener('keyup', function(e) {
+    if (e.key === 'Enter') {
+        applyFilters();
+    }
+});
+</script>
+{% endblock %}

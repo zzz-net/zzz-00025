@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block title %}404 - 页面未找到{% endblock %}
+
+{% block content %}
+<div class="text-center py-5">
+    <div class="error-page">
+        <h1 class="display-1 text-muted">404</h1>
+        <h2 class="mb-4">页面未找到</h2>
+        <p class="text-muted mb-4">抱歉，您访问的页面不存在或已被移除。</p>
+        <div class="d-flex justify-content-center gap-3">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">
+                <i class="bi bi-house-door me-2"></i>返回首页
+            </a>
+            <a href="{{ url_for('import_page') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-arrow-up me-2"></i>导入数据
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
